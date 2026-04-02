@@ -28,9 +28,15 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
     └── index.ts         # Serveur Express + proxy vers Expo port 8081
 ```
 
+## Corrections appliquées
+
+- **start.sh** : Utilise `./node_modules/.bin/expo` au lieu de `npx expo` pour éviter l'installation de la mauvaise version
+- **db/schema.ts** : Ajout de la colonne `quartier` dans la table `users`
+- **server/index.ts** : Ajout de la fonction `toSnake()` pour convertir les réponses Drizzle (camelCase) en snake_case, conformément aux interfaces TypeScript du frontend
+
 ## Tables de base de données
 
-- `users` - Utilisateurs (Firebase UID, profil, points, wallet)
+- `users` - Utilisateurs (Firebase UID, profil, quartier, points, wallet)
 - `posts` - Publications du fil d'actualité
 - `lending_items` - Objets à prêter/louer
 - `service_missions` - Missions de service entre voisins

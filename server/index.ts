@@ -5,6 +5,17 @@ import { users, posts, marche, publications, messages } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 
+function toSnake(obj: any): any {
+  if (Array.isArray(obj)) return obj.map(toSnake);
+  if (obj === null || typeof obj !== "object" || obj instanceof Date) return obj;
+  const result: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const snakeKey = k.replace(/([A-Z])/g, "_$1").toLowerCase();
+    result[snakeKey] = toSnake(v);
+  }
+  return result;
+}
+
 const app = express();
 const PORT = 5000;
 const EXPO_PORT = 8081;
@@ -34,7 +45,7 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/posts", async (_req, res) => {
   try {
     const result = await db.select().from(posts).orderBy(desc(posts.createdAt)).limit(100);
-    res.json(result);
+    res.json(toSnake(result));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -55,7 +66,7 @@ app.post("/api/posts", async (req, res) => {
       likes: [],
       comments: [],
     } as any).returning();
-    res.json(post);
+    res.json(toSnake(post));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -74,7 +85,7 @@ app.post("/api/posts/:id/like", async (req, res) => {
       likes = [...likes, userId];
     }
     const [updated] = await db.update(posts).set({ likes: likes as any }).where(eq(posts.id, id)).returning();
-    res.json(updated);
+    res.json(toSnake(updated));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -84,7 +95,7 @@ app.post("/api/posts/:id/like", async (req, res) => {
 app.get("/api/users", async (_req, res) => {
   try {
     const result = await db.select().from(users).limit(50);
-    res.json(result);
+    res.json(toSnake(result));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -95,7 +106,7 @@ app.get("/api/users/firebase/:uid", async (req, res) => {
     const { uid } = req.params;
     const [user] = await db.select().from(users).where(eq(users.firebaseUid, uid));
     if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
-    res.json(user);
+    res.json(toSnake(user));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -105,7 +116,7 @@ app.post("/api/users", async (req, res) => {
   try {
     const { firebase_uid, email, display_name } = req.body;
     const existing = await db.select().from(users).where(eq(users.firebaseUid, firebase_uid));
-    if (existing.length > 0) return res.json(existing[0]);
+    if (existing.length > 0) return res.json(toSnake(existing[0]));
     const [user] = await db.insert(users).values({
       firebaseUid: firebase_uid,
       email,
@@ -119,7 +130,7 @@ app.post("/api/users", async (req, res) => {
       isVerified: false,
       isBanned: false,
     } as any).returning();
-    res.json(user);
+    res.json(toSnake(user));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -158,7 +169,7 @@ app.patch("/api/users/firebase/:uid", async (req, res) => {
     const { uid } = req.params;
     const updates = mapUserBody(req.body);
     const [user] = await db.update(users).set(updates).where(eq(users.firebaseUid, uid)).returning();
-    res.json(user);
+    res.json(toSnake(user));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -169,7 +180,7 @@ app.patch("/api/users/:id", async (req, res) => {
     const { id } = req.params;
     const updates = mapUserBody(req.body);
     const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
-    res.json(user);
+    res.json(toSnake(user));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -179,7 +190,7 @@ app.patch("/api/users/:id", async (req, res) => {
 app.get("/api/marche", async (_req, res) => {
   try {
     const result = await db.select().from(marche).orderBy(desc(marche.createdAt)).limit(100);
-    res.json(result);
+    res.json(toSnake(result));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -198,7 +209,7 @@ app.post("/api/marche", async (req, res) => {
       imageUrl: image_url,
       disponible: disponible !== false,
     } as any).returning();
-    res.json(item);
+    res.json(toSnake(item));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -214,7 +225,7 @@ app.get("/api/messages/:channel", async (req, res) => {
       .where(eq(messages.channel, channel))
       .orderBy(messages.createdAt)
       .limit(100);
-    res.json(result);
+    res.json(toSnake(result));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -234,7 +245,7 @@ app.post("/api/messages", async (req, res) => {
       audioUrl: audio_url || null,
       messageType: message_type || "text",
     } as any).returning();
-    res.json(msg);
+    res.json(toSnake(msg));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../context/AuthContext";
 
@@ -44,6 +45,14 @@ export default function ProfilScreen() {
     work: "",
     bio: "",
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (firebaseUser) {
+        refreshUser();
+      }
+    }, [firebaseUser])
+  );
 
   const openEditModal = () => {
     setEditForm({

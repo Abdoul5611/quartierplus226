@@ -90,6 +90,113 @@ async function uploadAudio(base64: string): Promise<string> {
   return data.url;
 }
 
+function AudioPlayer({ audioUrl, isMe }: { audioUrl: string; isMe: boolean }) {
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "playing" | "paused" | "error">("idle");
+
+  useEffect(() => {
+    return () => {
+      soundRef.current?.unloadAsync().catch(() => {});
+    };
+  }, []);
+
+  const handleToggle = async () => {
+    if (!audioUrl) {
+      Alert.alert("Erreur", "URL audio introuvable.");
+      return;
+    }
+
+    if (status === "playing") {
+      await soundRef.current?.pauseAsync();
+      setStatus("paused");
+      return;
+    }
+
+    if (status === "paused" && soundRef.current) {
+      await soundRef.current.playAsync();
+      setStatus("playing");
+      return;
+    }
+
+    setStatus("loading");
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+      });
+
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUrl },
+        { shouldPlay: true },
+        (playbackStatus) => {
+          if (!playbackStatus.isLoaded) return;
+          if (playbackStatus.didJustFinish) {
+            setStatus("idle");
+            soundRef.current?.unloadAsync().catch(() => {});
+            soundRef.current = null;
+          }
+        }
+      );
+      soundRef.current = sound;
+      setStatus("playing");
+    } catch (e) {
+      console.error("Erreur lecture audio:", e);
+      setStatus("error");
+      Alert.alert("Erreur", "Impossible de lire ce message vocal.");
+    }
+  };
+
+  const iconColor = isMe ? "#fff" : COLORS.primary;
+  const labelColor = isMe ? "rgba(255,255,255,0.9)" : COLORS.text;
+  const waveColor = isMe ? "rgba(255,255,255,0.5)" : "#A5D6A7";
+  const waveActiveColor = isMe ? "#fff" : COLORS.primary;
+
+  return (
+    <TouchableOpacity
+      style={styles.audioPlayerRow}
+      onPress={handleToggle}
+      activeOpacity={0.75}
+      disabled={status === "loading"}
+    >
+      <View style={[styles.playIconWrap, { borderColor: isMe ? "rgba(255,255,255,0.6)" : COLORS.primary }]}>
+        {status === "loading" ? (
+          <ActivityIndicator size="small" color={iconColor} />
+        ) : (
+          <Text style={[styles.playIconText, { color: iconColor }]}>
+            {status === "playing" ? "⏸" : "▶"}
+          </Text>
+        )}
+      </View>
+
+      <View style={styles.waveformRow}>
+        {[5, 10, 7, 14, 9, 12, 6, 11, 8, 13, 5, 9, 7].map((h, i) => (
+          <View
+            key={i}
+            style={[
+              styles.waveBar,
+              {
+                height: h * 2,
+                backgroundColor:
+                  status === "playing" && i % 3 !== 0 ? waveActiveColor : waveColor,
+              },
+            ]}
+          />
+        ))}
+      </View>
+
+      <Text style={[styles.audioLabel, { color: labelColor }]}>
+        {status === "playing" ? "En lecture..." : status === "loading" ? "Chargement..." : status === "error" ? "Erreur" : "Vocal"}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function MessagesScreen() {
   const { firebaseUser } = useAuth();
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
@@ -187,9 +294,7 @@ export default function MessagesScreen() {
       const blob = await response.blob();
       const reader = new FileReader();
       reader.readAsDataURL(blob);
-      await new Promise<void>((resolve) => {
-        reader.onloadend = () => resolve();
-      });
+      await new Promise<void>((resolve) => { reader.onloadend = () => resolve(); });
       const base64 = (reader.result as string).split(",")[1];
       const audioUrl = await uploadAudio(base64);
 
@@ -293,12 +398,11 @@ export default function MessagesScreen() {
                 )}
                 <View style={[styles.msgBubble, isMe ? styles.myBubble : styles.otherBubble]}>
                   {!isMe && <Text style={styles.msgSender}>{item.sender_name}</Text>}
-                  {item.message_type === "audio" ? (
-                    <View style={styles.audioBubble}>
-                      <Text style={styles.audioIcon}>🎵</Text>
-                      <Text style={[styles.audioText, isMe && { color: "rgba(255,255,255,0.9)" }]}>
-                        Message vocal
-                      </Text>
+                  {item.message_type === "audio" && item.audio_url ? (
+                    <AudioPlayer audioUrl={item.audio_url} isMe={isMe} />
+                  ) : item.message_type === "audio" ? (
+                    <View style={styles.audioPlayerRow}>
+                      <Text style={{ color: isMe ? "#fff" : COLORS.muted, fontSize: 13 }}>🎵 Message vocal</Text>
                     </View>
                   ) : (
                     <Text style={[styles.msgText, isMe && styles.msgTextMe]}>{item.text}</Text>
@@ -412,9 +516,37 @@ const styles = StyleSheet.create({
   msgText: { fontSize: 14, color: COLORS.text, lineHeight: 20 },
   msgTextMe: { color: "#fff" },
   msgTime: { fontSize: 10, color: COLORS.muted, marginTop: 4, alignSelf: "flex-end" },
-  audioBubble: { flexDirection: "row", alignItems: "center", gap: 8 },
-  audioIcon: { fontSize: 20 },
-  audioText: { fontSize: 13, color: COLORS.text, fontWeight: "600" },
+  audioPlayerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 2,
+    minWidth: 160,
+  },
+  playIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  playIconText: { fontSize: 14, marginLeft: 2 },
+  waveformRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    flex: 1,
+  },
+  waveBar: {
+    width: 3,
+    borderRadius: 2,
+  },
+  audioLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    minWidth: 50,
+  },
   emptyChat: { alignItems: "center", paddingTop: 80 },
   emptyChatIcon: { fontSize: 60, marginBottom: 12 },
   emptyChatText: { fontSize: 18, fontWeight: "700", color: COLORS.text },

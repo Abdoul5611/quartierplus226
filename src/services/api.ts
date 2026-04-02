@@ -77,6 +77,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ base64, folder }),
     }),
+  uploadVideo: (base64: string, folder?: string) =>
+    fetchAPI<{ url: string; public_id: string }>("/api/upload/video", {
+      method: "POST",
+      body: JSON.stringify({ base64, folder }),
+    }),
   uploadAudio: (base64: string, folder?: string) =>
     fetchAPI<{ url: string; public_id: string }>("/api/upload/audio", {
       method: "POST",

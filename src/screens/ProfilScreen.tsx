@@ -13,11 +13,11 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../context/AuthContext";
 
 const COLORS = {
   primary: "#2E7D32",
-  accent: "#FF6B35",
   bg: "#F8F9FA",
   card: "#FFFFFF",
   text: "#1A1A2E",
@@ -26,7 +26,7 @@ const COLORS = {
 };
 
 export default function ProfilScreen() {
-  const { firebaseUser, dbUser, signIn, signUp, logout, loading } = useAuth();
+  const { firebaseUser, dbUser, signIn, signUp, logout, loading, refreshUser } = useAuth();
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,16 +34,96 @@ export default function ProfilScreen() {
   const [authLoading, setAuthLoading] = useState(false);
   const [error, setError] = useState("");
   const [logoutModal, setLogoutModal] = useState(false);
+  const [editModal, setEditModal] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  const [editForm, setEditForm] = useState({
+    display_name: "",
+    quartier: "",
+    hometown: "",
+    work: "",
+    bio: "",
+  });
+
+  const openEditModal = () => {
+    setEditForm({
+      display_name: dbUser?.display_name || firebaseUser?.displayName || "",
+      quartier: dbUser?.quartier || "",
+      hometown: dbUser?.hometown || "",
+      work: dbUser?.work || "",
+      bio: dbUser?.bio || "",
+    });
+    setEditModal(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!firebaseUser) return;
+    setAuthLoading(true);
+    try {
+      const res = await fetch(`/api/users/firebase/${firebaseUser.uid}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          display_name: editForm.display_name.trim(),
+          quartier: editForm.quartier.trim(),
+          hometown: editForm.hometown.trim(),
+          work: editForm.work.trim(),
+          bio: editForm.bio.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error("Erreur sauvegarde");
+      await refreshUser();
+      setEditModal(false);
+      Alert.alert("✅", "Profil mis à jour !");
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message || "Impossible de sauvegarder. Réessayez.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handlePickProfilePhoto = async () => {
+    if (!firebaseUser) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission refusée", "Autorisez l'accès à la galerie dans les réglages.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        base64: true,
+        allowsEditing: true,
+        aspect: [1, 1],
+      });
+      if (!result.canceled && result.assets[0]?.base64) {
+        setPhotoUploading(true);
+        try {
+          const res = await fetch("/api/upload/profile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              base64: result.assets[0].base64,
+              user_id: firebaseUser.uid,
+            }),
+          });
+          if (!res.ok) throw new Error("Erreur upload");
+          await refreshUser();
+          Alert.alert("✅", "Photo de profil mise à jour !");
+        } finally {
+          setPhotoUploading(false);
+        }
+      }
+    } catch (err: any) {
+      setPhotoUploading(false);
+      Alert.alert("Erreur", err.message || "Impossible de mettre à jour la photo.");
+    }
+  };
 
   const handleAuth = async () => {
-    if (!email.trim() || !password.trim()) {
-      setError("Veuillez remplir tous les champs.");
-      return;
-    }
-    if (authMode === "register" && !displayName.trim()) {
-      setError("Veuillez entrer votre prénom.");
-      return;
-    }
+    if (!email.trim() || !password.trim()) { setError("Veuillez remplir tous les champs."); return; }
+    if (authMode === "register" && !displayName.trim()) { setError("Veuillez entrer votre prénom."); return; }
     setError("");
     setAuthLoading(true);
     try {
@@ -53,32 +133,27 @@ export default function ProfilScreen() {
         await signUp(email.trim(), password, displayName.trim());
       }
     } catch (e: any) {
-      const msg = e.code === "auth/user-not-found" ? "Utilisateur introuvable"
-        : e.code === "auth/wrong-password" ? "Mot de passe incorrect"
-        : e.code === "auth/email-already-in-use" ? "Email déjà utilisé"
-        : e.code === "auth/weak-password" ? "Mot de passe trop court (6 caractères min)"
-        : e.code === "auth/invalid-email" ? "Email invalide"
-        : e.message || "Erreur de connexion";
-      setError(msg);
+      const codes: Record<string, string> = {
+        "auth/user-not-found": "Utilisateur introuvable",
+        "auth/wrong-password": "Mot de passe incorrect",
+        "auth/invalid-credential": "Email ou mot de passe incorrect",
+        "auth/email-already-in-use": "Email déjà utilisé",
+        "auth/weak-password": "Mot de passe trop court (6 caractères min)",
+        "auth/invalid-email": "Email invalide",
+      };
+      setError(codes[e.code] || e.message || "Erreur de connexion");
     } finally {
       setAuthLoading(false);
     }
   };
 
   if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
+    return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
   }
 
   if (!firebaseUser) {
     return (
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView contentContainerStyle={styles.authContainer} keyboardShouldPersistTaps="handled">
           <View style={styles.authHeader}>
             <Text style={styles.authLogo}>🏘️</Text>
@@ -88,79 +163,38 @@ export default function ProfilScreen() {
 
           <View style={styles.authCard}>
             <View style={styles.tabRow}>
-              <TouchableOpacity
-                style={[styles.tab, authMode === "login" && styles.tabActive]}
-                onPress={() => { setAuthMode("login"); setError(""); }}
-              >
-                <Text style={[styles.tabText, authMode === "login" && styles.tabTextActive]}>Connexion</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tab, authMode === "register" && styles.tabActive]}
-                onPress={() => { setAuthMode("register"); setError(""); }}
-              >
-                <Text style={[styles.tabText, authMode === "register" && styles.tabTextActive]}>Inscription</Text>
-              </TouchableOpacity>
+              {(["login", "register"] as const).map((mode) => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[styles.tab, authMode === mode && styles.tabActive]}
+                  onPress={() => { setAuthMode(mode); setError(""); }}
+                >
+                  <Text style={[styles.tabText, authMode === mode && styles.tabTextActive]}>
+                    {mode === "login" ? "Connexion" : "Inscription"}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             {authMode === "register" && (
               <View style={styles.fieldGroup}>
                 <Text style={styles.fieldLabel}>Prénom & Nom</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ex: Marie Dupont"
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  autoCapitalize="words"
-                  placeholderTextColor={COLORS.muted}
-                />
+                <TextInput style={styles.input} placeholder="Ex: Marie Dupont" value={displayName} onChangeText={setDisplayName} autoCapitalize="words" placeholderTextColor={COLORS.muted} />
               </View>
             )}
-
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Email</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="votre@email.com"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                placeholderTextColor={COLORS.muted}
-              />
+              <TextInput style={styles.input} placeholder="votre@email.com" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" placeholderTextColor={COLORS.muted} />
             </View>
-
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Mot de passe</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="••••••••"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoComplete="password"
-                placeholderTextColor={COLORS.muted}
-              />
+              <TextInput style={styles.input} placeholder="••••••••" value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor={COLORS.muted} />
             </View>
 
-            {error ? (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>⚠️ {error}</Text>
-              </View>
-            ) : null}
+            {error ? <View style={styles.errorBox}><Text style={styles.errorText}>⚠️ {error}</Text></View> : null}
 
-            <TouchableOpacity
-              style={[styles.authBtn, authLoading && styles.authBtnDisabled]}
-              onPress={handleAuth}
-              disabled={authLoading}
-            >
-              {authLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.authBtnText}>
-                  {authMode === "login" ? "Se connecter" : "Créer mon compte"}
-                </Text>
-              )}
+            <TouchableOpacity style={[styles.authBtn, authLoading && styles.authBtnDisabled]} onPress={handleAuth} disabled={authLoading}>
+              {authLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.authBtnText}>{authMode === "login" ? "Se connecter" : "Créer mon compte"}</Text>}
             </TouchableOpacity>
           </View>
 
@@ -182,31 +216,41 @@ export default function ProfilScreen() {
     );
   }
 
-  const displayNameText = firebaseUser.displayName || dbUser?.display_name || "Voisin";
-  const initial = displayNameText[0].toUpperCase();
+  const displayNameText = dbUser?.display_name || firebaseUser.displayName || "Voisin";
+  const profilePhoto = dbUser?.profile_photo || dbUser?.avatar || firebaseUser.photoURL;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }}>
       <View style={styles.profileHeader}>
-        <View style={styles.avatarLarge}>
-          {firebaseUser.photoURL ? (
-            <Image source={{ uri: firebaseUser.photoURL }} style={styles.avatarImg} />
-          ) : (
-            <Text style={styles.avatarInitial}>{initial}</Text>
-          )}
-        </View>
+        {/* Avatar avec bouton + */}
+        <TouchableOpacity style={styles.avatarContainer} onPress={handlePickProfilePhoto} disabled={photoUploading}>
+          <View style={styles.avatarLarge}>
+            {profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.avatarImg} />
+            ) : (
+              <Text style={styles.avatarInitial}>{displayNameText[0].toUpperCase()}</Text>
+            )}
+            {photoUploading && (
+              <View style={styles.avatarLoadingOverlay}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            )}
+          </View>
+          <View style={styles.avatarPlusBtn}>
+            <Text style={styles.avatarPlusIcon}>+</Text>
+          </View>
+        </TouchableOpacity>
+
         <Text style={styles.profileName}>{displayNameText}</Text>
         <Text style={styles.profileEmail}>{firebaseUser.email}</Text>
-        {dbUser?.is_verified && (
-          <View style={styles.verifiedBadge}>
-            <Text style={styles.verifiedText}>✓ Voisin vérifié</Text>
-          </View>
-        )}
-        {dbUser?.is_premium && (
-          <View style={styles.premiumBadge}>
-            <Text style={styles.premiumText}>⭐ Premium</Text>
-          </View>
-        )}
+        <View style={styles.badgesRow}>
+          {dbUser?.is_verified && (
+            <View style={styles.verifiedBadge}><Text style={styles.verifiedText}>✓ Voisin vérifié</Text></View>
+          )}
+          {dbUser?.is_premium && (
+            <View style={styles.premiumBadge}><Text style={styles.premiumText}>⭐ Premium</Text></View>
+          )}
+        </View>
       </View>
 
       <View style={styles.statsGrid}>
@@ -226,27 +270,29 @@ export default function ProfilScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Mon profil</Text>
         {[
-          { icon: "📧", label: "Email", value: firebaseUser.email },
+          { icon: "👤", label: "Nom", value: displayNameText },
+          { icon: "📧", label: "Email", value: firebaseUser.email || "" },
           { icon: "📍", label: "Quartier", value: dbUser?.quartier || "Non renseigné" },
           { icon: "🏠", label: "Ville natale", value: dbUser?.hometown || "Non renseigné" },
           { icon: "💼", label: "Travail", value: dbUser?.work || "Non renseigné" },
+          { icon: "📝", label: "Bio", value: dbUser?.bio || "Non renseigné" },
         ].map((item, i) => (
           <View key={i} style={styles.infoRow}>
             <Text style={styles.infoIcon}>{item.icon}</Text>
             <View style={styles.infoContent}>
               <Text style={styles.infoLabel}>{item.label}</Text>
-              <Text style={styles.infoValue}>{item.value}</Text>
+              <Text style={styles.infoValue} numberOfLines={2}>{item.value}</Text>
             </View>
           </View>
         ))}
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Actions rapides</Text>
+        <Text style={styles.sectionTitle}>Actions</Text>
         {[
-          { icon: "✏️", label: "Modifier mon profil", action: () => {} },
+          { icon: "✏️", label: "Modifier mon profil", action: openEditModal },
+          { icon: "📷", label: "Changer ma photo", action: handlePickProfilePhoto },
           { icon: "🔔", label: "Notifications", action: () => {} },
-          { icon: "🔒", label: "Confidentialité", action: () => {} },
           { icon: "❓", label: "Aide & Support", action: () => {} },
         ].map((item, i) => (
           <TouchableOpacity key={i} style={styles.menuItem} onPress={item.action} activeOpacity={0.7}>
@@ -262,6 +308,51 @@ export default function ProfilScreen() {
         <Text style={styles.logoutText}>Se déconnecter</Text>
       </TouchableOpacity>
 
+      {/* ─── Modal Modifier profil ─── */}
+      <Modal visible={editModal} animationType="slide" transparent onRequestClose={() => setEditModal(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Modifier le profil</Text>
+                <TouchableOpacity onPress={() => setEditModal(false)}>
+                  <Text style={styles.closeBtn}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              {[
+                { key: "display_name", label: "Nom complet", placeholder: "Votre nom", icon: "👤" },
+                { key: "quartier", label: "Quartier", placeholder: "Ex: Cocody, Yopougon...", icon: "📍" },
+                { key: "hometown", label: "Ville natale", placeholder: "Ex: Abidjan, Dakar...", icon: "🏠" },
+                { key: "work", label: "Travail", placeholder: "Ex: Enseignant, Commerçant...", icon: "💼" },
+                { key: "bio", label: "Biographie", placeholder: "Parlez de vous...", icon: "📝" },
+              ].map((field) => (
+                <View key={field.key} style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>{field.icon} {field.label}</Text>
+                  <TextInput
+                    style={[styles.input, field.key === "bio" && { height: 80, textAlignVertical: "top" }]}
+                    placeholder={field.placeholder}
+                    value={(editForm as any)[field.key]}
+                    onChangeText={(v) => setEditForm((prev) => ({ ...prev, [field.key]: v }))}
+                    multiline={field.key === "bio"}
+                    placeholderTextColor={COLORS.muted}
+                  />
+                </View>
+              ))}
+
+              <TouchableOpacity
+                style={[styles.authBtn, authLoading && styles.authBtnDisabled]}
+                onPress={handleSaveProfile}
+                disabled={authLoading}
+              >
+                {authLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.authBtnText}>Enregistrer</Text>}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ─── Modal Déconnexion ─── */}
       <Modal visible={logoutModal} transparent animationType="fade">
         <View style={styles.confirmOverlay}>
           <View style={styles.confirmCard}>
@@ -288,17 +379,7 @@ const styles = StyleSheet.create({
   authLogo: { fontSize: 64, marginBottom: 12 },
   authTitle: { fontSize: 28, fontWeight: "800", color: COLORS.primary },
   authSubtitle: { fontSize: 14, color: COLORS.muted, marginTop: 6, textAlign: "center" },
-  authCard: {
-    backgroundColor: COLORS.card,
-    marginHorizontal: 20,
-    borderRadius: 20,
-    padding: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
-  },
+  authCard: { backgroundColor: COLORS.card, marginHorizontal: 20, borderRadius: 20, padding: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 },
   tabRow: { flexDirection: "row", backgroundColor: COLORS.bg, borderRadius: 12, padding: 4, marginBottom: 20 },
   tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 10 },
   tabActive: { backgroundColor: COLORS.primary },
@@ -306,15 +387,7 @@ const styles = StyleSheet.create({
   tabTextActive: { color: "#fff" },
   fieldGroup: { marginBottom: 14 },
   fieldLabel: { fontSize: 13, fontWeight: "700", color: COLORS.muted, marginBottom: 6 },
-  input: {
-    backgroundColor: COLORS.bg,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 14,
-    color: COLORS.text,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
+  input: { backgroundColor: COLORS.bg, borderRadius: 12, padding: 14, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border },
   errorBox: { backgroundColor: "#FFEBEE", borderRadius: 10, padding: 12, marginBottom: 14 },
   errorText: { color: "#C62828", fontSize: 13, fontWeight: "600" },
   authBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center" },
@@ -324,50 +397,23 @@ const styles = StyleSheet.create({
   featureRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
   featureIcon: { fontSize: 24, marginRight: 14 },
   featureText: { fontSize: 14, color: COLORS.text, fontWeight: "600" },
-  profileHeader: {
-    alignItems: "center",
-    paddingTop: 60,
-    paddingBottom: 24,
-    backgroundColor: COLORS.card,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  avatarLarge: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    marginBottom: 14,
-    borderWidth: 4,
-    borderColor: "#E8F5E9",
-  },
-  avatarImg: { width: 90, height: 90, borderRadius: 45 },
-  avatarInitial: { color: "#fff", fontSize: 36, fontWeight: "800" },
+  profileHeader: { alignItems: "center", paddingTop: 50, paddingBottom: 24, backgroundColor: COLORS.card, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
+  avatarContainer: { position: "relative", marginBottom: 14 },
+  avatarLarge: { width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 4, borderColor: "#E8F5E9" },
+  avatarImg: { width: 100, height: 100, borderRadius: 50 },
+  avatarInitial: { color: "#fff", fontSize: 40, fontWeight: "800" },
+  avatarLoadingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
+  avatarPlusBtn: { position: "absolute", bottom: 0, right: 0, width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#fff" },
+  avatarPlusIcon: { color: "#fff", fontSize: 20, fontWeight: "700", lineHeight: 22 },
   profileName: { fontSize: 22, fontWeight: "800", color: COLORS.text },
   profileEmail: { fontSize: 13, color: COLORS.muted, marginTop: 4 },
-  verifiedBadge: { backgroundColor: "#E8F5E9", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 4, marginTop: 8 },
+  badgesRow: { flexDirection: "row", gap: 8, marginTop: 8 },
+  verifiedBadge: { backgroundColor: "#E8F5E9", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 4 },
   verifiedText: { color: COLORS.primary, fontWeight: "700", fontSize: 12 },
-  premiumBadge: { backgroundColor: "#FFF9C4", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 4, marginTop: 6 },
+  premiumBadge: { backgroundColor: "#FFF9C4", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 4 },
   premiumText: { color: "#F57F17", fontWeight: "700", fontSize: 12 },
   statsGrid: { flexDirection: "row", margin: 16, gap: 10 },
-  statCard: {
-    flex: 1,
-    backgroundColor: COLORS.card,
-    borderRadius: 14,
-    padding: 14,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
+  statCard: { flex: 1, backgroundColor: COLORS.card, borderRadius: 14, padding: 14, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
   statIcon: { fontSize: 24, marginBottom: 6 },
   statValue: { fontSize: 18, fontWeight: "800", color: COLORS.primary },
   statLabel: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
@@ -382,18 +428,14 @@ const styles = StyleSheet.create({
   menuIcon: { fontSize: 22, marginRight: 14 },
   menuLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: COLORS.text },
   menuChevron: { fontSize: 22, color: COLORS.muted },
-  logoutBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    margin: 16,
-    padding: 16,
-    backgroundColor: "#FFEBEE",
-    borderRadius: 14,
-    gap: 10,
-  },
+  logoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", margin: 16, padding: 16, backgroundColor: "#FFEBEE", borderRadius: 14, gap: 10 },
   logoutIcon: { fontSize: 20 },
   logoutText: { fontWeight: "700", color: "#C62828", fontSize: 15 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  modalCard: { backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 50 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  modalTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text },
+  closeBtn: { fontSize: 22, color: COLORS.muted, padding: 4 },
   confirmOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 40 },
   confirmCard: { backgroundColor: COLORS.card, borderRadius: 20, padding: 24, width: "100%" },
   confirmTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text, textAlign: "center", marginBottom: 8 },

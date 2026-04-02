@@ -38,21 +38,15 @@ export default function MarcheScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [search, setSearch] = useState("");
-  const [newItem, setNewItem] = useState({
-    titre: "",
-    description: "",
-    prix: "",
-    categorie: "",
-    quartier: "",
-  });
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [newItem, setNewItem] = useState({ titre: "", description: "", prix: "", categorie: "", quartier: "" });
+  const [selectedImage, setSelectedImage] = useState<{ base64: string; uri: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState<MarcheItem | null>(null);
 
   const fetchItems = useCallback(async () => {
     try {
       const data = await api.getMarche();
-      setItems(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setItems(data);
     } catch (e) {
       console.error("Erreur marché:", e);
     } finally {
@@ -64,41 +58,48 @@ export default function MarcheScreen() {
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
   const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") return;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      base64: true,
-    });
-    if (!result.canceled && result.assets[0].base64) {
-      setSelectedImage(result.assets[0].base64);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission refusée", "Autorisez l'accès à la galerie dans les réglages.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.75,
+        base64: true,
+      });
+      if (!result.canceled && result.assets[0]?.base64) {
+        setSelectedImage({ base64: result.assets[0].base64, uri: result.assets[0].uri });
+      }
+    } catch (err) {
+      Alert.alert("Erreur", "Impossible d'accéder à la galerie.");
     }
   };
 
   const handleCreate = async () => {
     if (!newItem.titre.trim()) {
-      Alert.alert("Erreur", "Le titre est obligatoire.");
+      Alert.alert("", "Le titre est obligatoire.");
       return;
     }
     if (!firebaseUser) {
-      Alert.alert("Connexion requise", "Connectez-vous pour vendre.");
+      Alert.alert("Connexion requise", "Connectez-vous dans l'onglet Profil pour vendre.");
       return;
     }
     setUploading(true);
     try {
       let imageUrl: string | undefined;
       if (selectedImage) {
-        const uploaded = await api.uploadImage(selectedImage, "quartierplus/marche");
+        const uploaded = await api.uploadImage(selectedImage.base64, "quartierplus/marche");
         imageUrl = uploaded.url;
       }
       await api.createMarcheItem({
         vendeur_id: firebaseUser.uid,
         titre: newItem.titre.trim(),
         description: newItem.description.trim() || undefined,
-        prix: newItem.prix || undefined,
+        prix: newItem.prix.trim() || undefined,
         categorie: newItem.categorie || undefined,
-        quartier: newItem.quartier || dbUser?.quartier || undefined,
+        quartier: newItem.quartier.trim() || dbUser?.quartier || undefined,
         image_url: imageUrl,
         disponible: true,
       } as any);
@@ -106,17 +107,25 @@ export default function MarcheScreen() {
       setSelectedImage(null);
       setModalVisible(false);
       fetchItems();
+      Alert.alert("✅", "Votre annonce a été publiée !");
     } catch (e: any) {
-      Alert.alert("Erreur", e.message || "Impossible de publier l'annonce");
+      Alert.alert("Erreur", e.message || "Impossible de publier l'annonce. Réessayez.");
     } finally {
       setUploading(false);
     }
   };
 
+  const resetForm = () => {
+    setNewItem({ titre: "", description: "", prix: "", categorie: "", quartier: "" });
+    setSelectedImage(null);
+    setModalVisible(false);
+  };
+
   const filtered = items.filter(
     (i) =>
       i.titre.toLowerCase().includes(search.toLowerCase()) ||
-      (i.description || "").toLowerCase().includes(search.toLowerCase())
+      (i.description || "").toLowerCase().includes(search.toLowerCase()) ||
+      (i.categorie || "").toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -124,7 +133,7 @@ export default function MarcheScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Marché Local</Text>
-          <Text style={styles.headerSub}>{items.length} annonce{items.length !== 1 ? "s" : ""}</Text>
+          <Text style={styles.headerSub}>{filtered.length} annonce{filtered.length !== 1 ? "s" : ""}</Text>
         </View>
         <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
           <Text style={styles.addBtnText}>+ Vendre</Text>
@@ -140,10 +149,15 @@ export default function MarcheScreen() {
           onChangeText={setSearch}
           placeholderTextColor={COLORS.muted}
         />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch("")}>
+            <Text style={{ color: COLORS.muted, fontSize: 18, paddingHorizontal: 4 }}>✕</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 60 }} />
       ) : (
         <FlatList
           data={filtered}
@@ -163,61 +177,74 @@ export default function MarcheScreen() {
         />
       )}
 
-      <Modal visible={!!selected} transparent animationType="fade">
+      {/* ─── Détail produit ─── */}
+      <Modal visible={!!selected} transparent animationType="fade" onRequestClose={() => setSelected(null)}>
         <View style={styles.detailOverlay}>
           <View style={styles.detailCard}>
-            {selected?.image_url && (
+            {selected?.image_url ? (
               <Image source={{ uri: selected.image_url }} style={styles.detailImage} resizeMode="cover" />
+            ) : (
+              <View style={[styles.detailImage, { backgroundColor: "#E8F5E9", alignItems: "center", justifyContent: "center" }]}>
+                <Text style={{ fontSize: 64 }}>🛍️</Text>
+              </View>
             )}
-            <View style={{ padding: 20 }}>
+            <ScrollView style={{ padding: 20 }}>
               <Text style={styles.detailTitle}>{selected?.titre}</Text>
-              {selected?.description && (
-                <Text style={styles.detailDesc}>{selected.description}</Text>
-              )}
+              {selected?.description ? <Text style={styles.detailDesc}>{selected.description}</Text> : null}
               <Text style={styles.detailPrix}>
                 {selected?.prix ? `${Number(selected.prix).toLocaleString("fr-FR")} FCFA` : "Gratuit"}
               </Text>
-              {selected?.quartier && (
-                <Text style={styles.detailQuartier}>📍 {selected.quartier}</Text>
-              )}
+              {selected?.quartier ? <Text style={styles.detailQuartier}>📍 {selected.quartier}</Text> : null}
+              {selected?.categorie ? (
+                <View style={styles.detailCatBadge}>
+                  <Text style={styles.detailCatText}>{selected.categorie}</Text>
+                </View>
+              ) : null}
               <TouchableOpacity style={styles.contactBtn}>
                 <Text style={styles.contactBtnText}>💬 Contacter le vendeur</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.closeDetailBtn} onPress={() => setSelected(null)}>
                 <Text style={styles.closeDetailBtnText}>Fermer</Text>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
 
-      <Modal visible={modalVisible} animationType="slide" transparent>
+      {/* ─── Modal Nouvelle annonce ─── */}
+      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={resetForm}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
-          <ScrollView>
+          <ScrollView keyboardShouldPersistTaps="handled">
             <View style={styles.modalCard}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Nouvelle annonce</Text>
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
+                <TouchableOpacity onPress={resetForm}>
                   <Text style={styles.closeBtn}>✕</Text>
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
+              <TouchableOpacity style={styles.imagePicker} onPress={pickImage} activeOpacity={0.7}>
                 {selectedImage ? (
-                  <Image source={{ uri: `data:image/jpeg;base64,${selectedImage}` }} style={styles.pickedImage} resizeMode="cover" />
+                  <View>
+                    <Image source={{ uri: selectedImage.uri }} style={styles.pickedImage} resizeMode="cover" />
+                    <View style={styles.changePhotoOverlay}>
+                      <Text style={styles.changePhotoText}>📷 Changer</Text>
+                    </View>
+                  </View>
                 ) : (
                   <>
                     <Text style={styles.imagePickerIcon}>📷</Text>
                     <Text style={styles.imagePickerText}>Ajouter une photo</Text>
+                    <Text style={styles.imagePickerSub}>Appuyez pour choisir</Text>
                   </>
                 )}
               </TouchableOpacity>
 
               {[
-                { key: "titre", label: "Titre *", placeholder: "Que vendez-vous ?" },
-                { key: "description", label: "Description", placeholder: "Décrivez l'article..." },
-                { key: "prix", label: "Prix (FCFA)", placeholder: "Laisser vide si gratuit" },
-                { key: "quartier", label: "Quartier", placeholder: dbUser?.quartier || "Votre quartier" },
+                { key: "titre", label: "Titre *", placeholder: "Que vendez-vous ?", keyboard: "default" as any },
+                { key: "description", label: "Description", placeholder: "État, détails de l'article...", keyboard: "default" as any },
+                { key: "prix", label: "Prix (FCFA)", placeholder: "Laisser vide si gratuit / échange", keyboard: "numeric" as any },
+                { key: "quartier", label: "Quartier", placeholder: dbUser?.quartier || "Votre quartier", keyboard: "default" as any },
               ].map((field) => (
                 <View key={field.key} style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>{field.label}</Text>
@@ -226,7 +253,7 @@ export default function MarcheScreen() {
                     placeholder={field.placeholder}
                     value={(newItem as any)[field.key]}
                     onChangeText={(v) => setNewItem((prev) => ({ ...prev, [field.key]: v }))}
-                    keyboardType={field.key === "prix" ? "numeric" : "default"}
+                    keyboardType={field.keyboard}
                     multiline={field.key === "description"}
                     placeholderTextColor={COLORS.muted}
                   />
@@ -234,16 +261,14 @@ export default function MarcheScreen() {
               ))}
 
               <Text style={styles.fieldLabel}>Catégorie</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catPicker}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
                 {CATEGORIES.map((cat) => (
                   <TouchableOpacity
                     key={cat}
                     style={[styles.catChip, newItem.categorie === cat && styles.catChipActive]}
                     onPress={() => setNewItem((prev) => ({ ...prev, categorie: cat }))}
                   >
-                    <Text style={[styles.catChipText, newItem.categorie === cat && styles.catChipTextActive]}>
-                      {cat}
-                    </Text>
+                    <Text style={[styles.catChipText, newItem.categorie === cat && styles.catChipTextActive]}>{cat}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -253,7 +278,14 @@ export default function MarcheScreen() {
                 onPress={handleCreate}
                 disabled={!newItem.titre.trim() || uploading}
               >
-                {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Publier l'annonce</Text>}
+                {uploading ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <ActivityIndicator color="#fff" />
+                    <Text style={styles.submitBtnText}>Publication en cours...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.submitBtnText}>Publier l'annonce</Text>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -266,33 +298,18 @@ export default function MarcheScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 16,
-    backgroundColor: COLORS.card,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, backgroundColor: COLORS.card,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
   },
   headerTitle: { fontSize: 22, fontWeight: "800", color: COLORS.primary },
   headerSub: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
   addBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
   addBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.card,
-    marginHorizontal: 16,
-    marginVertical: 12,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    flexDirection: "row", alignItems: "center", backgroundColor: COLORS.card,
+    marginHorizontal: 16, marginVertical: 12, borderRadius: 14, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: COLORS.border,
   },
   searchIcon: { fontSize: 16, marginRight: 8 },
   searchInput: { flex: 1, height: 44, fontSize: 14, color: COLORS.text },
@@ -301,13 +318,15 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 64, marginBottom: 16 },
   emptyText: { fontSize: 18, fontWeight: "700", color: COLORS.text, textAlign: "center" },
   emptySubText: { fontSize: 14, color: COLORS.muted, textAlign: "center", marginTop: 8 },
-  detailOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 },
-  detailCard: { backgroundColor: COLORS.card, borderRadius: 20, overflow: "hidden" },
-  detailImage: { width: "100%", height: 220 },
+  detailOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", padding: 20 },
+  detailCard: { backgroundColor: COLORS.card, borderRadius: 20, overflow: "hidden", maxHeight: "85%" },
+  detailImage: { width: "100%", height: 240 },
   detailTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text, marginBottom: 8 },
   detailDesc: { fontSize: 14, color: COLORS.muted, marginBottom: 12, lineHeight: 22 },
-  detailPrix: { fontSize: 22, fontWeight: "800", color: COLORS.primary, marginBottom: 8 },
-  detailQuartier: { fontSize: 13, color: COLORS.muted, marginBottom: 16 },
+  detailPrix: { fontSize: 24, fontWeight: "800", color: COLORS.primary, marginBottom: 8 },
+  detailQuartier: { fontSize: 13, color: COLORS.muted, marginBottom: 12 },
+  detailCatBadge: { backgroundColor: "#E8F5E9", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 4, alignSelf: "flex-start", marginBottom: 16 },
+  detailCatText: { color: COLORS.primary, fontWeight: "700", fontSize: 12 },
   contactBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center", marginBottom: 10 },
   contactBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   closeDetailBtn: { alignItems: "center", paddingVertical: 10 },
@@ -316,15 +335,24 @@ const styles = StyleSheet.create({
   modalCard: { backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 50 },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
   modalTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text },
-  closeBtn: { fontSize: 20, color: COLORS.muted },
-  imagePicker: { backgroundColor: COLORS.bg, borderRadius: 14, height: 160, alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 2, borderColor: COLORS.border, borderStyle: "dashed", overflow: "hidden" },
-  imagePickerIcon: { fontSize: 40, marginBottom: 8 },
-  imagePickerText: { color: COLORS.muted, fontSize: 14 },
+  closeBtn: { fontSize: 22, color: COLORS.muted, padding: 4 },
+  imagePicker: {
+    backgroundColor: COLORS.bg, borderRadius: 14, height: 160,
+    alignItems: "center", justifyContent: "center", marginBottom: 16,
+    borderWidth: 2, borderColor: COLORS.border, borderStyle: "dashed", overflow: "hidden",
+  },
+  imagePickerIcon: { fontSize: 40, marginBottom: 6 },
+  imagePickerText: { color: COLORS.text, fontSize: 14, fontWeight: "600" },
+  imagePickerSub: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
   pickedImage: { width: "100%", height: 160 },
+  changePhotoOverlay: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    backgroundColor: "rgba(0,0,0,0.5)", paddingVertical: 8, alignItems: "center",
+  },
+  changePhotoText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   fieldGroup: { marginBottom: 14 },
   fieldLabel: { fontSize: 13, fontWeight: "700", color: COLORS.muted, marginBottom: 6 },
   input: { backgroundColor: COLORS.bg, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border },
-  catPicker: { marginBottom: 20 },
   catChip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16, backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border, marginRight: 8 },
   catChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   catChipText: { color: COLORS.muted, fontWeight: "600", fontSize: 13 },

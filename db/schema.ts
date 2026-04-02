@@ -166,6 +166,18 @@ export const marche = pgTable("marche", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const messages = pgTable("messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  channel: text("channel").notNull().default("general"),
+  senderId: text("sender_id").notNull(),
+  senderName: text("sender_name").notNull(),
+  senderAvatar: text("sender_avatar"),
+  text: text("text"),
+  audioUrl: text("audio_url"),
+  messageType: text("message_type").default("text"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Post = typeof posts.$inferSelect;

@@ -125,22 +125,50 @@ app.post("/api/users", async (req, res) => {
   }
 });
 
-app.patch("/api/users/:id", async (req, res) => {
+function mapUserBody(body: Record<string, any>): Record<string, any> {
+  const map: Record<string, string> = {
+    display_name: "displayName",
+    profile_photo: "profilePhoto",
+    cover_photo: "coverPhoto",
+    hometown: "hometown",
+    work: "work",
+    bio: "bio",
+    quartier: "quartier",
+    avatar: "avatar",
+    is_premium: "isPremium",
+    is_verified: "isVerified",
+    points: "points",
+    wallet_balance: "walletBalance",
+    merci_count: "merciCount",
+    lending_count: "lendingCount",
+    stripe_customer_id: "stripeCustomerId",
+    referral_code: "referralCode",
+    referred_by: "referredBy",
+    firebase_uid: "firebaseUid",
+  };
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(body)) {
+    out[map[k] ?? k] = v;
+  }
+  return out;
+}
+
+app.patch("/api/users/firebase/:uid", async (req, res) => {
   try {
-    const { id } = req.params;
-    const updates = req.body;
-    const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
+    const { uid } = req.params;
+    const updates = mapUserBody(req.body);
+    const [user] = await db.update(users).set(updates).where(eq(users.firebaseUid, uid)).returning();
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-app.patch("/api/users/firebase/:uid", async (req, res) => {
+app.patch("/api/users/:id", async (req, res) => {
   try {
-    const { uid } = req.params;
-    const updates = req.body;
-    const [user] = await db.update(users).set(updates).where(eq(users.firebaseUid, uid)).returning();
+    const { id } = req.params;
+    const updates = mapUserBody(req.body);
+    const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: String(err) });

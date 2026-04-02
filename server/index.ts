@@ -55,14 +55,14 @@ app.post("/api/posts", async (req, res) => {
   try {
     const { author_id, author_name, author_avatar, content, image_uri, video_uri, category, is_emergency } = req.body;
     const [post] = await db.insert(posts).values({
-      author_id,
-      author_name,
-      author_avatar,
+      authorId: author_id,
+      authorName: author_name,
+      authorAvatar: author_avatar || null,
       content,
-      image_uri,
-      video_uri,
+      imageUri: image_uri || null,
+      videoUri: video_uri || null,
       category: category || "general",
-      is_emergency: is_emergency || false,
+      isEmergency: is_emergency || false,
       likes: [],
       comments: [],
     } as any).returning();
@@ -244,6 +244,46 @@ app.post("/api/messages", async (req, res) => {
       text: text || null,
       audioUrl: audio_url || null,
       messageType: message_type || "text",
+    } as any).returning();
+    res.json(toSnake(msg));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Profile update (POST alias) ─────────────────────────────────────
+app.post("/api/profile/update", async (req, res) => {
+  try {
+    const { firebase_uid, ...fields } = req.body;
+    if (!firebase_uid) return res.status(400).json({ error: "firebase_uid requis" });
+    const updates = mapUserBody(fields);
+    const [user] = await db.update(users).set(updates).where(eq(users.firebaseUid, firebase_uid)).returning();
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    res.json(toSnake(user));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Messages vocaux (combiné upload + sauvegarde Neon) ───────────────
+app.post("/api/voice-messages", async (req, res) => {
+  try {
+    const { base64, channel, sender_id, sender_name, sender_avatar } = req.body;
+    if (!base64) return res.status(400).json({ error: "base64 audio requis" });
+    if (!sender_id || !sender_name) return res.status(400).json({ error: "sender_id et sender_name requis" });
+    const uploadResult = await cloudinary.uploader.upload(
+      `data:audio/mpeg;base64,${base64}`,
+      { folder: "quartierplus/audio", resource_type: "video" }
+    );
+    const audioUrl = uploadResult.secure_url;
+    const [msg] = await db.insert(messages).values({
+      channel: channel || "general",
+      senderId: sender_id,
+      senderName: sender_name,
+      senderAvatar: sender_avatar || null,
+      text: null,
+      audioUrl,
+      messageType: "audio",
     } as any).returning();
     res.json(toSnake(msg));
   } catch (err) {

@@ -184,6 +184,17 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const votes = pgTable("votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: text("post_id").notNull(),
+  userId: text("user_id").notNull(),
+  optionIndex: integer("option_index").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Vote = typeof votes.$inferSelect;
+export type NewVote = typeof votes.$inferInsert;
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Post = typeof posts.$inferSelect;

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -380,6 +380,81 @@ function CommentsModal({ visible, post, onClose, onCommentAdded }: {
   );
 }
 
+function PollWidget({ post }: { post: Post }) {
+  const { firebaseUser } = useAuth();
+  const options: { label: string }[] = Array.isArray(post.poll_options) ? (post.poll_options as any) : [];
+  const [results, setResults] = useState<number[]>(options.map(() => 0));
+  const [userVote, setUserVote] = useState<number | null>(null);
+  const [voting, setVoting] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!options.length) return;
+    api.getPollResults(post.id, firebaseUser?.uid).then((data) => {
+      setResults(data.results);
+      setUserVote(data.userVote);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, [post.id]);
+
+  const totalVotes = results.reduce((a, b) => a + b, 0);
+
+  const handleVote = async (index: number) => {
+    if (!firebaseUser) { Alert.alert("Connexion requise", "Connectez-vous pour voter."); return; }
+    if (userVote !== null) return;
+    setVoting(true);
+    try {
+      const data = await api.votePoll(post.id, firebaseUser.uid, index);
+      setResults(data.results);
+      setUserVote(index);
+    } catch (e: any) {
+      if (e.message?.includes("409") || e.message?.includes("déjà voté")) {
+        Alert.alert("Déjà voté", "Vous avez déjà participé à ce sondage.");
+      } else {
+        Alert.alert("Erreur", "Impossible de voter. Réessayez.");
+      }
+    } finally {
+      setVoting(false);
+    }
+  };
+
+  if (!loaded || !options.length) return null;
+
+  return (
+    <View style={pw.container}>
+      <Text style={pw.label}>📊 Sondage · {totalVotes} vote{totalVotes !== 1 ? "s" : ""}</Text>
+      {options.map((opt, i) => {
+        const count = results[i] || 0;
+        const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+        const isMyVote = userVote === i;
+        const voted = userVote !== null;
+        return (
+          <TouchableOpacity
+            key={i}
+            style={[pw.optionBtn, isMyVote && pw.optionBtnChosen, voted && { opacity: 1 }]}
+            onPress={() => handleVote(i)}
+            disabled={voted || voting}
+            activeOpacity={voted ? 1 : 0.7}
+          >
+            <View style={pw.optionInner}>
+              {voted && (
+                <View style={[pw.bar, { width: `${pct}%` as any, backgroundColor: isMyVote ? "#1565C0" : "#BBDEFB" }]} />
+              )}
+              <View style={pw.optionRow}>
+                <Text style={[pw.optionLabel, isMyVote && pw.optionLabelChosen]}>
+                  {isMyVote ? "✓ " : ""}{opt.label}
+                </Text>
+                {voted && <Text style={[pw.pct, isMyVote && pw.pctChosen]}>{pct}%</Text>}
+              </View>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+      {!firebaseUser && <Text style={pw.loginHint}>Connectez-vous pour voter</Text>}
+    </View>
+  );
+}
+
 export default function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: PostCardProps) {
   const { firebaseUser } = useAuth();
   const [likes, setLikes] = useState<string[]>(Array.isArray(post.likes) ? post.likes : []);
@@ -463,6 +538,10 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
 
       <Text style={styles.content}>{post.content}</Text>
 
+      {post.poll_options && Array.isArray(post.poll_options) && (post.poll_options as any[]).length > 0 && (
+        <PollWidget post={post} />
+      )}
+
       {post.video_uri ? (
         <MiniVideo uri={post.video_uri} onPress={() => setFullscreenVisible(true)} />
       ) : post.image_uri ? (
@@ -529,6 +608,25 @@ function getCategoryLabel(cat: string) {
   const map: Record<string, string> = { general: "Général", urgence: "Urgence", evenement: "Événement", marche: "Marché", aide: "Aide" };
   return map[cat] || cat;
 }
+
+const pw = StyleSheet.create({
+  container: { backgroundColor: "#EEF7FF", borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: "#90CAF9" },
+  label: { fontSize: 13, fontWeight: "700", color: "#1565C0", marginBottom: 10 },
+  optionBtn: {
+    borderRadius: 10, borderWidth: 1.5, borderColor: "#90CAF9",
+    marginBottom: 8, overflow: "hidden",
+    backgroundColor: "#fff",
+  },
+  optionBtnChosen: { borderColor: "#1565C0" },
+  optionInner: { position: "relative", minHeight: 40 },
+  bar: { position: "absolute", top: 0, left: 0, bottom: 0, borderRadius: 9, opacity: 0.35 },
+  optionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 10 },
+  optionLabel: { fontSize: 14, fontWeight: "600", color: COLORS.text, flex: 1 },
+  optionLabelChosen: { color: "#1565C0", fontWeight: "800" },
+  pct: { fontSize: 14, fontWeight: "700", color: COLORS.muted, marginLeft: 8 },
+  pctChosen: { color: "#1565C0" },
+  loginHint: { fontSize: 12, color: COLORS.muted, textAlign: "center", marginTop: 4 },
+});
 
 const fs = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },

@@ -1,7 +1,7 @@
 import express from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { db } from "../db";
-import { users, posts, marche, publications, messages } from "../db/schema";
+import { users, posts, marche, publications, messages, votes } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 
@@ -80,7 +80,7 @@ async function sendExpoPushNotifications(tokens: string[], title: string, body: 
 
 app.post("/api/posts", async (req, res) => {
   try {
-    const { author_id, author_name, author_avatar, content, image_uri, video_uri, category, is_emergency, latitude, longitude } = req.body;
+    const { author_id, author_name, author_avatar, content, image_uri, video_uri, category, is_emergency, latitude, longitude, poll_options } = req.body;
     const [post] = await db.insert(posts).values({
       authorId: author_id,
       authorName: author_name,
@@ -90,6 +90,7 @@ app.post("/api/posts", async (req, res) => {
       videoUri: video_uri || null,
       category: category || "general",
       isEmergency: is_emergency || false,
+      pollOptions: poll_options || null,
       likes: [],
       comments: [],
       latitude: latitude != null ? String(latitude) : null,
@@ -190,6 +191,57 @@ app.post("/api/posts/:id/comments", async (req, res) => {
       .where(eq(posts.id, id))
       .returning();
     res.json(toSnake(updated));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Polls ────────────────────────────────────────────────────────────
+app.get("/api/polls/:postId/results", async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { userId } = req.query as { userId?: string };
+
+    const [post] = await db.select({ pollOptions: posts.pollOptions }).from(posts).where(eq(posts.id, postId));
+    if (!post || !post.pollOptions) return res.status(404).json({ error: "Sondage introuvable" });
+
+    const options = post.pollOptions as { label: string }[];
+    const allVotes = await db.select().from(votes).where(eq(votes.postId, postId));
+
+    const results = options.map((_: any, i: number) => allVotes.filter((v: any) => v.optionIndex === i).length);
+
+    let userVote: number | null = null;
+    if (userId) {
+      const myVote = allVotes.find((v: any) => v.userId === userId);
+      if (myVote) userVote = myVote.optionIndex;
+    }
+
+    res.json({ results, userVote });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/polls/:postId/vote", async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { userId, optionIndex } = req.body;
+    if (!userId || optionIndex === undefined) return res.status(400).json({ error: "userId et optionIndex requis" });
+
+    const [post] = await db.select({ pollOptions: posts.pollOptions }).from(posts).where(eq(posts.id, postId));
+    if (!post || !post.pollOptions) return res.status(404).json({ error: "Sondage introuvable" });
+
+    const existing = await db.select().from(votes).where(eq(votes.postId, postId));
+    const alreadyVoted = existing.find((v: any) => v.userId === userId);
+    if (alreadyVoted) return res.status(409).json({ error: "Vous avez déjà voté pour ce sondage" });
+
+    await db.insert(votes).values({ postId, userId, optionIndex });
+
+    const options = post.pollOptions as { label: string }[];
+    const allVotes = await db.select().from(votes).where(eq(votes.postId, postId));
+    const results = options.map((_: any, i: number) => allVotes.filter((v: any) => v.optionIndex === i).length);
+
+    res.json({ success: true, results });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

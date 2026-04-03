@@ -12,6 +12,10 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface PollOption {
+  label: string;
+}
+
 export interface Post {
   id: string;
   author_id: string;
@@ -22,6 +26,7 @@ export interface Post {
   video_uri?: string;
   category: string;
   is_emergency: boolean;
+  poll_options?: PollOption[] | null;
   likes: string[];
   comments: any[];
   latitude?: string | null;
@@ -111,4 +116,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ base64, folder }),
     }),
+
+  votePoll: (postId: string, userId: string, optionIndex: number) =>
+    fetchAPI<{ success: boolean; results: number[] }>(`/api/polls/${postId}/vote`, {
+      method: "POST",
+      body: JSON.stringify({ userId, optionIndex }),
+    }),
+
+  getPollResults: (postId: string, userId?: string) =>
+    fetchAPI<{ results: number[]; userVote: number | null }>(`/api/polls/${postId}/results?userId=${userId || ""}`),
 };

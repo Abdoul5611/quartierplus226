@@ -56,6 +56,9 @@ export default function AccueilScreen() {
   const [uploading, setUploading] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [publicProfil, setPublicProfil] = useState<{ authorId: string; authorName: string; authorAvatar?: string } | null>(null);
+  const [pollMode, setPollMode] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollChoices, setPollChoices] = useState(["Oui", "Non"]);
 
   useEffect(() => {
     (async () => {
@@ -119,7 +122,10 @@ export default function AccueilScreen() {
   };
 
   const handlePublish = async () => {
-    if (!newContent.trim()) {
+    if (pollMode) {
+      if (!pollQuestion.trim()) { Alert.alert("", "Écrivez la question du sondage !"); return; }
+      if (pollChoices.some((c) => !c.trim())) { Alert.alert("", "Renseignez tous les choix du sondage."); return; }
+    } else if (!newContent.trim()) {
       Alert.alert("", "Écrivez quelque chose d'abord !");
       return;
     }
@@ -132,7 +138,7 @@ export default function AccueilScreen() {
       let imageUri: string | undefined;
       let videoUri: string | undefined;
 
-      if (selectedMedia) {
+      if (selectedMedia && !pollMode) {
         if (selectedMedia.type === "video") {
           const uploaded = await api.uploadVideo(selectedMedia.base64, "quartierplus/videos");
           videoUri = uploaded.url;
@@ -146,13 +152,14 @@ export default function AccueilScreen() {
         author_id: firebaseUser.uid,
         author_name: firebaseUser.displayName || dbUser?.display_name || "Voisin",
         author_avatar: firebaseUser.photoURL || dbUser?.profile_photo || undefined,
-        content: newContent.trim(),
+        content: pollMode ? pollQuestion.trim() : newContent.trim(),
         category: newCategory,
         is_emergency: isEmergency,
         image_uri: imageUri,
         video_uri: videoUri,
         latitude: userLocation?.latitude,
         longitude: userLocation?.longitude,
+        poll_options: pollMode ? pollChoices.map((c) => ({ label: c.trim() })) : undefined,
       } as any);
 
       setNewContent("");
@@ -174,6 +181,9 @@ export default function AccueilScreen() {
     setNewCategory("general");
     setIsEmergency(false);
     setSelectedMedia(null);
+    setPollMode(false);
+    setPollQuestion("");
+    setPollChoices(["Oui", "Non"]);
   };
 
   const filteredPosts = filter === "tous"
@@ -253,16 +263,6 @@ export default function AccueilScreen() {
               </View>
             )}
 
-            <TextInput
-              style={styles.textarea}
-              placeholder="Partagez quelque chose avec vos voisins..."
-              multiline
-              numberOfLines={4}
-              value={newContent}
-              onChangeText={setNewContent}
-              placeholderTextColor={COLORS.muted}
-            />
-
             <Text style={styles.sectionLabel}>Catégorie</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
               {CATEGORIES.filter((c) => c.key !== "tous").map((cat) => (
@@ -276,25 +276,84 @@ export default function AccueilScreen() {
               ))}
             </ScrollView>
 
+            {!pollMode && (
+              <TextInput
+                style={styles.textarea}
+                placeholder="Partagez quelque chose avec vos voisins..."
+                multiline
+                numberOfLines={4}
+                value={newContent}
+                onChangeText={setNewContent}
+                placeholderTextColor={COLORS.muted}
+              />
+            )}
+
+            {pollMode && (
+              <View style={styles.pollBox}>
+                <Text style={styles.pollBoxTitle}>📊 Sondage</Text>
+                <TextInput
+                  style={styles.pollQuestion}
+                  placeholder="Votre question..."
+                  value={pollQuestion}
+                  onChangeText={setPollQuestion}
+                  placeholderTextColor={COLORS.muted}
+                  maxLength={140}
+                />
+                {pollChoices.map((choice, i) => (
+                  <View key={i} style={styles.pollChoiceRow}>
+                    <Text style={styles.pollChoiceNum}>{i + 1}</Text>
+                    <TextInput
+                      style={styles.pollChoiceInput}
+                      placeholder={`Choix ${i + 1}...`}
+                      value={choice}
+                      onChangeText={(t) => {
+                        const next = [...pollChoices];
+                        next[i] = t;
+                        setPollChoices(next);
+                      }}
+                      placeholderTextColor={COLORS.muted}
+                      maxLength={60}
+                    />
+                  </View>
+                ))}
+                {pollChoices.length < 4 && (
+                  <TouchableOpacity style={styles.addChoiceBtn} onPress={() => setPollChoices([...pollChoices, ""])}>
+                    <Text style={styles.addChoiceBtnText}>+ Ajouter un choix</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
             <View style={styles.optionsRow}>
-              <TouchableOpacity style={styles.optionBtn} onPress={() => pickMedia("image")}>
-                <Text style={styles.optionIcon}>📷</Text>
-                <Text style={styles.optionLabel}>Photo</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.optionBtn} onPress={() => pickMedia("video")}>
-                <Text style={styles.optionIcon}>🎥</Text>
-                <Text style={styles.optionLabel}>Vidéo</Text>
-              </TouchableOpacity>
+              {!pollMode && (
+                <>
+                  <TouchableOpacity style={styles.optionBtn} onPress={() => pickMedia("image")}>
+                    <Text style={styles.optionIcon}>📷</Text>
+                    <Text style={styles.optionLabel}>Photo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.optionBtn} onPress={() => pickMedia("video")}>
+                    <Text style={styles.optionIcon}>🎥</Text>
+                    <Text style={styles.optionLabel}>Vidéo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.optionBtn, isEmergency && styles.optionBtnDanger]}
+                    onPress={() => setIsEmergency(!isEmergency)}
+                  >
+                    <Text style={styles.optionIcon}>🚨</Text>
+                    <Text style={[styles.optionLabel, isEmergency && { color: COLORS.emergency }]}>Urgent</Text>
+                  </TouchableOpacity>
+                </>
+              )}
               <TouchableOpacity
-                style={[styles.optionBtn, isEmergency && styles.optionBtnDanger]}
-                onPress={() => setIsEmergency(!isEmergency)}
+                style={[styles.optionBtn, pollMode && { borderColor: "#2196F3", backgroundColor: "#E3F2FD" }]}
+                onPress={() => { setPollMode(!pollMode); setSelectedMedia(null); }}
               >
-                <Text style={styles.optionIcon}>🚨</Text>
-                <Text style={[styles.optionLabel, isEmergency && { color: COLORS.emergency }]}>Urgent</Text>
+                <Text style={styles.optionIcon}>📊</Text>
+                <Text style={[styles.optionLabel, pollMode && { color: "#1565C0" }]}>Sondage</Text>
               </TouchableOpacity>
             </View>
 
-            {selectedMedia && (
+            {selectedMedia && !pollMode && (
               <View style={styles.mediaPreviewContainer}>
                 {selectedMedia.type === "image" ? (
                   <Image source={{ uri: selectedMedia.uri }} style={styles.mediaPreview} resizeMode="cover" />
@@ -319,9 +378,9 @@ export default function AccueilScreen() {
             )}
 
             <TouchableOpacity
-              style={[styles.submitBtn, (!newContent.trim() || uploading) && styles.submitBtnDisabled]}
+              style={[styles.submitBtn, ((!pollMode && !newContent.trim()) || (pollMode && !pollQuestion.trim()) || uploading) && styles.submitBtnDisabled]}
               onPress={handlePublish}
-              disabled={!newContent.trim() || uploading}
+              disabled={(!pollMode && !newContent.trim()) || (pollMode && !pollQuestion.trim()) || uploading}
             >
               {uploading ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -406,4 +465,12 @@ const styles = StyleSheet.create({
   submitBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center" },
   submitBtnDisabled: { backgroundColor: "#A5D6A7" },
   submitBtnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  pollBox: { backgroundColor: "#EEF7FF", borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: "#90CAF9" },
+  pollBoxTitle: { fontSize: 14, fontWeight: "800", color: "#1565C0", marginBottom: 10 },
+  pollQuestion: { backgroundColor: "#fff", borderRadius: 10, padding: 10, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: "#BBDEFB", marginBottom: 10 },
+  pollChoiceRow: { flexDirection: "row", alignItems: "center", marginBottom: 8, gap: 8 },
+  pollChoiceNum: { width: 24, height: 24, borderRadius: 12, backgroundColor: "#1565C0", color: "#fff", fontWeight: "800", fontSize: 12, textAlign: "center", lineHeight: 24 },
+  pollChoiceInput: { flex: 1, backgroundColor: "#fff", borderRadius: 10, padding: 9, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: "#BBDEFB" },
+  addChoiceBtn: { alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#BBDEFB", borderRadius: 8, marginTop: 4 },
+  addChoiceBtnText: { color: "#1565C0", fontWeight: "700", fontSize: 13 },
 });

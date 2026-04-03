@@ -368,15 +368,15 @@ export default function ProfilScreen() {
 
       <View style={styles.statsGrid}>
         {[
-          { label: "Points", value: dbUser?.points ?? 10, icon: "⭐" },
-          { label: "Mercis", value: dbUser?.merci_count ?? 0, icon: "🙏" },
-          { label: "Wallet", value: `${(dbUser?.wallet_balance ?? 0).toLocaleString()} F`, icon: "💰" },
+          { label: "Points", value: dbUser?.points ?? 10, icon: "⭐", onPress: undefined },
+          { label: "Mercis", value: dbUser?.merci_count ?? 0, icon: "🙏", onPress: undefined },
+          { label: "Wallet", value: `${(dbUser?.wallet_balance ?? 0).toLocaleString()} F`, icon: "💰", onPress: () => Alert.alert("💰 Wallet", "Système de paiement bientôt disponible.") },
         ].map((stat, i) => (
-          <View key={i} style={styles.statCard}>
+          <TouchableOpacity key={i} style={styles.statCard} onPress={stat.onPress} activeOpacity={stat.onPress ? 0.7 : 1}>
             <Text style={styles.statIcon}>{stat.icon}</Text>
             <Text style={styles.statValue}>{stat.value}</Text>
             <Text style={styles.statLabel}>{stat.label}</Text>
-          </View>
+          </TouchableOpacity>
         ))}
       </View>
 

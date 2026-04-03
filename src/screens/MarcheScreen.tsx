@@ -16,6 +16,7 @@ import {
   Image,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { useNavigation } from "@react-navigation/native";
 import { api, MarcheItem } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import MarcheCard from "../components/MarcheCard";
@@ -33,6 +34,7 @@ const CATEGORIES = ["Alimentation", "Électronique", "Vêtements", "Mobilier", "
 
 export default function MarcheScreen() {
   const { firebaseUser, dbUser } = useAuth();
+  const navigation = useNavigation<any>();
   const [items, setItems] = useState<MarcheItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -200,7 +202,17 @@ export default function MarcheScreen() {
                   <Text style={styles.detailCatText}>{selected.categorie}</Text>
                 </View>
               ) : null}
-              <TouchableOpacity style={styles.contactBtn}>
+              <TouchableOpacity
+                style={styles.contactBtn}
+                onPress={() => {
+                  const titre = selected?.titre ?? "";
+                  setSelected(null);
+                  navigation.navigate("Messages", {
+                    initialChannel: "general",
+                    prefillText: titre ? `Je suis intéressé(e) par : ${titre} ` : "",
+                  });
+                }}
+              >
                 <Text style={styles.contactBtnText}>💬 Contacter le vendeur</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.closeDetailBtn} onPress={() => setSelected(null)}>

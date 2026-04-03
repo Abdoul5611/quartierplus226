@@ -52,6 +52,8 @@ export default function PublicProfilModal({ visible, authorId, authorName, autho
     }).finally(() => setLoading(false));
   }, [visible, authorId]);
 
+  const navigation = useNavigation<any>();
+
   const handleContact = () => {
     Alert.alert(
       `Contacter ${authorName}`,
@@ -61,7 +63,10 @@ export default function PublicProfilModal({ visible, authorId, authorName, autho
           text: "💬 Message dans le quartier",
           onPress: () => {
             onClose();
-            Alert.alert("Messages", "Rendez-vous dans l'onglet Messages pour discuter avec vos voisins !");
+            navigation.navigate("Messages", {
+              initialChannel: "general",
+              prefillText: `@${authorName} `,
+            });
           },
         },
         {

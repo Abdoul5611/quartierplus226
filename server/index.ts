@@ -51,6 +51,20 @@ app.get("/api/posts", async (_req, res) => {
   }
 });
 
+async function sendExpoPushNotifications(tokens: string[], title: string, body: string, data?: object) {
+  if (!tokens.length) return;
+  const messages = tokens.map((to) => ({ to, sound: "default", title, body, data: data || {} }));
+  const chunks: typeof messages[] = [];
+  for (let i = 0; i < messages.length; i += 100) chunks.push(messages.slice(i, i + 100));
+  for (const chunk of chunks) {
+    fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Accept": "application/json", "Accept-Encoding": "gzip, deflate", "Content-Type": "application/json" },
+      body: JSON.stringify(chunk),
+    }).catch(() => {});
+  }
+}
+
 app.post("/api/posts", async (req, res) => {
   try {
     const { author_id, author_name, author_avatar, content, image_uri, video_uri, category, is_emergency, latitude, longitude } = req.body;
@@ -69,6 +83,22 @@ app.post("/api/posts", async (req, res) => {
       longitude: longitude != null ? String(longitude) : null,
     } as any).returning();
     res.json(toSnake(post));
+
+    db.select({ pushToken: users.pushToken })
+      .from(users)
+      .then((allUsers) => {
+        const tokens = allUsers
+          .map((u) => u.pushToken)
+          .filter((t): t is string => !!t && t !== "" && t.startsWith("ExponentPushToken"));
+        const emoji = is_emergency ? "🚨" : "🏘️";
+        sendExpoPushNotifications(
+          tokens,
+          `${emoji} ${author_name || "Voisin"} a publié`,
+          content?.slice(0, 80) || "Nouvelle publication dans le quartier",
+          { postId: post.id, type: "new_post" }
+        );
+      })
+      .catch(() => {});
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -199,6 +229,32 @@ app.patch("/api/users/firebase/:uid", async (req, res) => {
   try {
     const { uid } = req.params;
     const updates = mapUserBody(req.body);
+    const [user] = await db.update(users).set(updates).where(eq(users.firebaseUid, uid)).returning();
+    res.json(toSnake(user));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/users/:uid/push-token", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: "Token manquant" });
+    await db.update(users).set({ pushToken: token } as any).where(eq(users.firebaseUid, uid));
+    res.json({ success: true, token });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.patch("/api/users/:uid/settings", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { notifications_enabled, location_visible } = req.body;
+    const updates: Record<string, any> = {};
+    if (notifications_enabled !== undefined) updates.notificationsEnabled = notifications_enabled;
+    if (location_visible !== undefined) updates.locationVisible = location_visible;
     const [user] = await db.update(users).set(updates).where(eq(users.firebaseUid, uid)).returning();
     res.json(toSnake(user));
   } catch (err) {

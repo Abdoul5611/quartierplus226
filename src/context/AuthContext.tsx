@@ -9,6 +9,7 @@ import {
 } from "firebase/auth";
 import { auth } from "../services/firebase";
 import { api, User } from "../services/api";
+import { registerForPushNotifications } from "../services/notifications";
 
 interface AuthContextType {
   firebaseUser: FirebaseUser | null;
@@ -41,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setFirebaseUser(user);
       if (user) {
         await fetchDbUser(user.uid);
+        registerForPushNotifications(user.uid).catch(() => {});
       } else {
         setDbUser(null);
       }

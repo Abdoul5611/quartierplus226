@@ -55,6 +55,12 @@ export interface User {
   is_premium: boolean;
   is_verified: boolean;
   quartier?: string;
+  hometown?: string;
+  work?: string;
+  bio?: string;
+  push_token?: string | null;
+  notifications_enabled?: boolean;
+  location_visible?: boolean;
 }
 
 export const api = {
@@ -74,6 +80,18 @@ export const api = {
     fetchAPI<User>("/api/users", { method: "POST", body: JSON.stringify(data) }),
   updateUser: (id: string, data: Partial<User>) =>
     fetchAPI<User>(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  savePushToken: (firebaseUid: string, token: string) =>
+    fetchAPI<{ success: boolean }>(`/api/users/${firebaseUid}/push-token`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+
+  updateUserSettings: (firebaseUid: string, settings: { notifications_enabled?: boolean; location_visible?: boolean }) =>
+    fetchAPI<User>(`/api/users/${firebaseUid}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
 
   uploadImage: (base64: string, folder?: string) =>
     fetchAPI<{ url: string; public_id: string }>("/api/upload/image", {

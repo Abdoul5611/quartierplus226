@@ -36,6 +36,9 @@ export const users = pgTable("users", {
   stripeCustomerId: text("stripe_customer_id"),
   referralCode: text("referral_code"),
   referredBy: text("referred_by"),
+  pushToken: text("push_token"),
+  notificationsEnabled: boolean("notifications_enabled").default(true),
+  locationVisible: boolean("location_visible").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

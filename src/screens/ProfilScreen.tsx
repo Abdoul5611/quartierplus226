@@ -12,10 +12,13 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Switch,
+  Linking,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../context/AuthContext";
+import { api } from "../services/api";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -24,6 +27,7 @@ const COLORS = {
   text: "#1A1A2E",
   muted: "#6C757D",
   border: "#E9ECEF",
+  danger: "#D32F2F",
 };
 
 export default function ProfilScreen() {
@@ -36,7 +40,9 @@ export default function ProfilScreen() {
   const [error, setError] = useState("");
   const [logoutModal, setLogoutModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
+  const [settingsModal, setSettingsModal] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -46,11 +52,12 @@ export default function ProfilScreen() {
     bio: "",
   });
 
+  const notificationsOn = dbUser?.notifications_enabled !== false;
+  const locationVisible = dbUser?.location_visible !== false;
+
   useFocusEffect(
     useCallback(() => {
-      if (firebaseUser) {
-        refreshUser();
-      }
+      if (firebaseUser) refreshUser();
     }, [firebaseUser])
   );
 
@@ -62,6 +69,7 @@ export default function ProfilScreen() {
       work: dbUser?.work || "",
       bio: dbUser?.bio || "",
     });
+    setSettingsModal(false);
     setEditModal(true);
   };
 
@@ -69,7 +77,7 @@ export default function ProfilScreen() {
     if (!firebaseUser) return;
     setAuthLoading(true);
     try {
-      const res = await fetch(`/api/users/firebase/${firebaseUser.uid}`, {
+      await fetch(`/api/users/firebase/${firebaseUser.uid}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -80,15 +88,50 @@ export default function ProfilScreen() {
           bio: editForm.bio.trim(),
         }),
       });
-      if (!res.ok) throw new Error("Erreur sauvegarde");
       await refreshUser();
       setEditModal(false);
       Alert.alert("✅", "Profil mis à jour !");
     } catch (e: any) {
-      Alert.alert("Erreur", e.message || "Impossible de sauvegarder. Réessayez.");
+      Alert.alert("Erreur", e.message || "Impossible de sauvegarder.");
     } finally {
       setAuthLoading(false);
     }
+  };
+
+  const toggleNotifications = async (value: boolean) => {
+    if (!firebaseUser) return;
+    setSavingSettings(true);
+    try {
+      await api.updateUserSettings(firebaseUser.uid, { notifications_enabled: value });
+      await refreshUser();
+    } catch {
+      Alert.alert("Erreur", "Impossible de mettre à jour les paramètres.");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const toggleLocation = async (value: boolean) => {
+    if (!firebaseUser) return;
+    setSavingSettings(true);
+    try {
+      await api.updateUserSettings(firebaseUser.uid, { location_visible: value });
+      await refreshUser();
+    } catch {
+      Alert.alert("Erreur", "Impossible de mettre à jour les paramètres.");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleContactAdmin = () => {
+    const waUrl = "https://wa.me/+2250101010101?text=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20QuartierPlus.";
+    const mailUrl = "mailto:admin@quartierplus.app?subject=Support%20QuartierPlus";
+    Alert.alert("Contacter l'Admin", "Choisissez votre mode de contact :", [
+      { text: "WhatsApp", onPress: () => Linking.openURL(waUrl) },
+      { text: "Email", onPress: () => Linking.openURL(mailUrl) },
+      { text: "Annuler", style: "cancel" },
+    ]);
   };
 
   const handlePickProfilePhoto = async () => {
@@ -112,10 +155,7 @@ export default function ProfilScreen() {
           const res = await fetch("/api/upload/profile", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              base64: result.assets[0].base64,
-              user_id: firebaseUser.uid,
-            }),
+            body: JSON.stringify({ base64: result.assets[0].base64, user_id: firebaseUser.uid }),
           });
           if (!res.ok) throw new Error("Erreur upload");
           await refreshUser();
@@ -173,14 +213,8 @@ export default function ProfilScreen() {
           <View style={styles.authCard}>
             <View style={styles.tabRow}>
               {(["login", "register"] as const).map((mode) => (
-                <TouchableOpacity
-                  key={mode}
-                  style={[styles.tab, authMode === mode && styles.tabActive]}
-                  onPress={() => { setAuthMode(mode); setError(""); }}
-                >
-                  <Text style={[styles.tabText, authMode === mode && styles.tabTextActive]}>
-                    {mode === "login" ? "Connexion" : "Inscription"}
-                  </Text>
+                <TouchableOpacity key={mode} style={[styles.tab, authMode === mode && styles.tabActive]} onPress={() => { setAuthMode(mode); setError(""); }}>
+                  <Text style={[styles.tabText, authMode === mode && styles.tabTextActive]}>{mode === "login" ? "Connexion" : "Inscription"}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -230,8 +264,13 @@ export default function ProfilScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }}>
+
+      {/* ─── Header profil avec bouton ··· ─── */}
       <View style={styles.profileHeader}>
-        {/* Avatar avec bouton + */}
+        <TouchableOpacity style={styles.settingsBtn} onPress={() => setSettingsModal(true)}>
+          <Text style={styles.settingsBtnText}>···</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.avatarContainer} onPress={handlePickProfilePhoto} disabled={photoUploading}>
           <View style={styles.avatarLarge}>
             {profilePhoto ? (
@@ -253,12 +292,9 @@ export default function ProfilScreen() {
         <Text style={styles.profileName}>{displayNameText}</Text>
         <Text style={styles.profileEmail}>{firebaseUser.email}</Text>
         <View style={styles.badgesRow}>
-          {dbUser?.is_verified && (
-            <View style={styles.verifiedBadge}><Text style={styles.verifiedText}>✓ Voisin vérifié</Text></View>
-          )}
-          {dbUser?.is_premium && (
-            <View style={styles.premiumBadge}><Text style={styles.premiumText}>⭐ Premium</Text></View>
-          )}
+          {dbUser?.is_verified && <View style={styles.verifiedBadge}><Text style={styles.verifiedText}>✓ Voisin vérifié</Text></View>}
+          {dbUser?.is_premium && <View style={styles.premiumBadge}><Text style={styles.premiumText}>⭐ Premium</Text></View>}
+          {notificationsOn && <View style={styles.notifBadge}><Text style={styles.notifBadgeText}>🔔 Notifs actives</Text></View>}
         </View>
       </View>
 
@@ -296,26 +332,77 @@ export default function ProfilScreen() {
         ))}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Actions</Text>
-        {[
-          { icon: "✏️", label: "Modifier mon profil", action: openEditModal },
-          { icon: "📷", label: "Changer ma photo", action: handlePickProfilePhoto },
-          { icon: "🔔", label: "Notifications", action: () => {} },
-          { icon: "❓", label: "Aide & Support", action: () => {} },
-        ].map((item, i) => (
-          <TouchableOpacity key={i} style={styles.menuItem} onPress={item.action} activeOpacity={0.7}>
-            <Text style={styles.menuIcon}>{item.icon}</Text>
-            <Text style={styles.menuLabel}>{item.label}</Text>
-            <Text style={styles.menuChevron}>›</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
       <TouchableOpacity style={styles.logoutBtn} onPress={() => setLogoutModal(true)}>
         <Text style={styles.logoutIcon}>🚪</Text>
         <Text style={styles.logoutText}>Se déconnecter</Text>
       </TouchableOpacity>
+
+      {/* ─── Modal Paramètres (···) ─── */}
+      <Modal visible={settingsModal} animationType="slide" transparent onRequestClose={() => setSettingsModal(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSettingsModal(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.settingsCard} onPress={() => {}}>
+            <View style={styles.settingsHandle} />
+            <Text style={styles.settingsTitle}>Paramètres</Text>
+
+            <TouchableOpacity style={styles.settingsItem} onPress={openEditModal}>
+              <Text style={styles.settingsItemIcon}>✏️</Text>
+              <Text style={styles.settingsItemLabel}>Modifier le profil</Text>
+              <Text style={styles.settingsChevron}>›</Text>
+            </TouchableOpacity>
+
+            <View style={[styles.settingsItem, styles.settingsItemToggle]}>
+              <Text style={styles.settingsItemIcon}>🔔</Text>
+              <View style={styles.settingsItemInfo}>
+                <Text style={styles.settingsItemLabel}>Notifications</Text>
+                <Text style={styles.settingsItemSub}>{notificationsOn ? "Activées" : "Désactivées"}</Text>
+              </View>
+              {savingSettings ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <Switch
+                  value={notificationsOn}
+                  onValueChange={toggleNotifications}
+                  trackColor={{ false: COLORS.border, true: "#A5D6A7" }}
+                  thumbColor={notificationsOn ? COLORS.primary : COLORS.muted}
+                />
+              )}
+            </View>
+
+            <View style={[styles.settingsItem, styles.settingsItemToggle]}>
+              <Text style={styles.settingsItemIcon}>📍</Text>
+              <View style={styles.settingsItemInfo}>
+                <Text style={styles.settingsItemLabel}>Ma position visible</Text>
+                <Text style={styles.settingsItemSub}>{locationVisible ? "Visible par les voisins" : "Masquée"}</Text>
+              </View>
+              {savingSettings ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <Switch
+                  value={locationVisible}
+                  onValueChange={toggleLocation}
+                  trackColor={{ false: COLORS.border, true: "#A5D6A7" }}
+                  thumbColor={locationVisible ? COLORS.primary : COLORS.muted}
+                />
+              )}
+            </View>
+
+            <TouchableOpacity style={styles.settingsItem} onPress={handleContactAdmin}>
+              <Text style={styles.settingsItemIcon}>📱</Text>
+              <Text style={styles.settingsItemLabel}>Contacter l'Admin</Text>
+              <Text style={styles.settingsChevron}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.settingsItem, styles.settingsItemDanger]}
+              onPress={() => { setSettingsModal(false); setTimeout(() => setLogoutModal(true), 300); }}
+            >
+              <Text style={styles.settingsItemIcon}>🚪</Text>
+              <Text style={[styles.settingsItemLabel, { color: COLORS.danger }]}>Déconnexion</Text>
+              <Text style={styles.settingsChevron}>›</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {/* ─── Modal Modifier profil ─── */}
       <Modal visible={editModal} animationType="slide" transparent onRequestClose={() => setEditModal(false)}>
@@ -406,7 +493,18 @@ const styles = StyleSheet.create({
   featureRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
   featureIcon: { fontSize: 24, marginRight: 14 },
   featureText: { fontSize: 14, color: COLORS.text, fontWeight: "600" },
-  profileHeader: { alignItems: "center", paddingTop: 50, paddingBottom: 24, backgroundColor: COLORS.card, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
+  profileHeader: {
+    alignItems: "center", paddingTop: 50, paddingBottom: 24, backgroundColor: COLORS.card,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+    position: "relative",
+  },
+  settingsBtn: {
+    position: "absolute", top: 50, right: 16,
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: COLORS.bg, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  settingsBtnText: { fontSize: 20, color: COLORS.text, fontWeight: "800", letterSpacing: 1 },
   avatarContainer: { position: "relative", marginBottom: 14 },
   avatarLarge: { width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 4, borderColor: "#E8F5E9" },
   avatarImg: { width: 100, height: 100, borderRadius: 50 },
@@ -416,11 +514,13 @@ const styles = StyleSheet.create({
   avatarPlusIcon: { color: "#fff", fontSize: 20, fontWeight: "700", lineHeight: 22 },
   profileName: { fontSize: 22, fontWeight: "800", color: COLORS.text },
   profileEmail: { fontSize: 13, color: COLORS.muted, marginTop: 4 },
-  badgesRow: { flexDirection: "row", gap: 8, marginTop: 8 },
+  badgesRow: { flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 16 },
   verifiedBadge: { backgroundColor: "#E8F5E9", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 4 },
   verifiedText: { color: COLORS.primary, fontWeight: "700", fontSize: 12 },
   premiumBadge: { backgroundColor: "#FFF9C4", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 4 },
   premiumText: { color: "#F57F17", fontWeight: "700", fontSize: 12 },
+  notifBadge: { backgroundColor: "#E3F2FD", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 4 },
+  notifBadgeText: { color: "#1565C0", fontWeight: "700", fontSize: 12 },
   statsGrid: { flexDirection: "row", margin: 16, gap: 10 },
   statCard: { flex: 1, backgroundColor: COLORS.card, borderRadius: 14, padding: 14, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
   statIcon: { fontSize: 24, marginBottom: 6 },
@@ -433,14 +533,21 @@ const styles = StyleSheet.create({
   infoContent: { flex: 1 },
   infoLabel: { fontSize: 12, color: COLORS.muted, fontWeight: "600" },
   infoValue: { fontSize: 14, color: COLORS.text, fontWeight: "600", marginTop: 2 },
-  menuItem: { flexDirection: "row", alignItems: "center", padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  menuIcon: { fontSize: 22, marginRight: 14 },
-  menuLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: COLORS.text },
-  menuChevron: { fontSize: 22, color: COLORS.muted },
   logoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", margin: 16, padding: 16, backgroundColor: "#FFEBEE", borderRadius: 14, gap: 10 },
   logoutIcon: { fontSize: 20 },
   logoutText: { fontWeight: "700", color: "#C62828", fontSize: 15 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  settingsCard: { backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, paddingBottom: 44 },
+  settingsHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: "center", marginBottom: 16 },
+  settingsTitle: { fontSize: 18, fontWeight: "800", color: COLORS.text, paddingHorizontal: 20, marginBottom: 8 },
+  settingsItem: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  settingsItemToggle: { justifyContent: "space-between" },
+  settingsItemDanger: { borderBottomWidth: 0 },
+  settingsItemIcon: { fontSize: 22, marginRight: 14 },
+  settingsItemInfo: { flex: 1 },
+  settingsItemLabel: { fontSize: 15, fontWeight: "600", color: COLORS.text },
+  settingsItemSub: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  settingsChevron: { fontSize: 22, color: COLORS.muted },
   modalCard: { backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 50 },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
   modalTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text },

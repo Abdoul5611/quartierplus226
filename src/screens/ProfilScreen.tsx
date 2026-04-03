@@ -15,6 +15,7 @@ import {
   Platform,
   Switch,
   Linking,
+  Share,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
@@ -47,6 +48,10 @@ export default function ProfilScreen() {
   const [photoKey, setPhotoKey] = useState<number>(Date.now());
   const [myPosts, setMyPosts] = useState<Post[]>([]);
   const [postsLoading, setPostsLoading] = useState(false);
+  const [rulesModal, setRulesModal] = useState(false);
+  const [faqModal, setFaqModal] = useState(false);
+  const [deleteModal, setDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -95,15 +100,30 @@ export default function ProfilScreen() {
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ["Modifier le profil", "Contact Admin", "Déconnexion", "Annuler"],
-          cancelButtonIndex: 3,
-          destructiveButtonIndex: 2,
+          options: [
+            "Modifier le profil",
+            "Inviter un voisin",
+            "Signaler un abus",
+            "Règles du quartier",
+            "Aide / FAQ",
+            "Contact Admin",
+            "Supprimer mon compte",
+            "Déconnexion",
+            "Annuler",
+          ],
+          cancelButtonIndex: 8,
+          destructiveButtonIndex: 6,
           title: "Paramètres",
         },
         (idx) => {
           if (idx === 0) openEditModal();
-          if (idx === 1) handleContactAdmin();
-          if (idx === 2) setLogoutModal(true);
+          if (idx === 1) handleInvite();
+          if (idx === 2) handleReport();
+          if (idx === 3) setRulesModal(true);
+          if (idx === 4) setFaqModal(true);
+          if (idx === 5) handleContactAdmin();
+          if (idx === 6) setDeleteModal(true);
+          if (idx === 7) setLogoutModal(true);
         }
       );
     } else {
@@ -182,6 +202,51 @@ export default function ProfilScreen() {
       { text: "Email", onPress: () => Linking.openURL(mailUrl) },
       { text: "Annuler", style: "cancel" },
     ]);
+  };
+
+  const handleInvite = async () => {
+    try {
+      await Share.share({
+        title: "QuartierPlus — Rejoignez votre quartier !",
+        message:
+          "🏘️ Rejoignez QuartierPlus, l'appli qui connecte les voisins !\n" +
+          "Discutez, achetez, vendez et entraidez-vous avec vos voisins.\n\n" +
+          "👉 Téléchargez l'app : https://quartierplus.app",
+      });
+    } catch {}
+  };
+
+  const handleReport = () => {
+    if (!firebaseUser) return;
+    const userId = firebaseUser.uid;
+    const userName = firebaseUser.displayName || dbUser?.display_name || "Inconnu";
+    const waText = encodeURIComponent(
+      `🚨 Signalement d'abus sur QuartierPlus\nUtilisateur : ${userName}\nID : ${userId}\nMotif : comportement abusif.`
+    );
+    const mailBody = encodeURIComponent(
+      `Signalement d'abus\n\nUtilisateur : ${userName}\nID : ${userId}\n\nMotif : comportement abusif.`
+    );
+    Alert.alert("Signaler un abus", "Choisissez votre mode d'envoi :", [
+      { text: "WhatsApp", onPress: () => Linking.openURL(`https://wa.me/+2250101010101?text=${waText}`) },
+      { text: "Email", onPress: () => Linking.openURL(`mailto:admin@quartierplus.app?subject=Signalement%20abus&body=${mailBody}`) },
+      { text: "Annuler", style: "cancel" },
+    ]);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!firebaseUser) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/users/firebase/${firebaseUser.uid}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Erreur serveur");
+      setDeleteModal(false);
+      await logout();
+      Alert.alert("✅ Compte supprimé", "Vos données ont été effacées. Au revoir !");
+    } catch {
+      Alert.alert("Erreur", "Impossible de supprimer le compte. Réessayez.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handlePickProfilePhoto = async () => {
@@ -480,42 +545,191 @@ export default function ProfilScreen() {
             <View style={styles.settingsHandle} />
             <Text style={styles.settingsTitle}>Paramètres</Text>
 
-            <TouchableOpacity
-              style={styles.settingsItem}
-              onPress={() => { setSettingsModal(false); openEditModal(); }}
-            >
-              <Text style={styles.settingsItemIcon}>✏️</Text>
-              <View style={styles.settingsItemInfo}>
-                <Text style={styles.settingsItemLabel}>Modifier le profil</Text>
-                <Text style={styles.settingsItemSub}>Nom, quartier, bio...</Text>
-              </View>
-              <Text style={styles.settingsChevron}>›</Text>
-            </TouchableOpacity>
+            <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+              <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); openEditModal(); }}>
+                <Text style={styles.settingsItemIcon}>✏️</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={styles.settingsItemLabel}>Modifier le profil</Text>
+                  <Text style={styles.settingsItemSub}>Nom, quartier, bio...</Text>
+                </View>
+                <Text style={styles.settingsChevron}>›</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.settingsItem}
-              onPress={() => { setSettingsModal(false); handleContactAdmin(); }}
-            >
-              <Text style={styles.settingsItemIcon}>📱</Text>
-              <View style={styles.settingsItemInfo}>
-                <Text style={styles.settingsItemLabel}>Contact Admin</Text>
-                <Text style={styles.settingsItemSub}>WhatsApp ou Email</Text>
-              </View>
-              <Text style={styles.settingsChevron}>›</Text>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); handleInvite(); }}>
+                <Text style={styles.settingsItemIcon}>🤝</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={styles.settingsItemLabel}>Inviter un voisin</Text>
+                  <Text style={styles.settingsItemSub}>Partager le lien de l'application</Text>
+                </View>
+                <Text style={styles.settingsChevron}>›</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.settingsItem, styles.settingsItemDanger]}
-              onPress={() => { setSettingsModal(false); setLogoutModal(true); }}
-            >
-              <Text style={styles.settingsItemIcon}>🚪</Text>
-              <View style={styles.settingsItemInfo}>
-                <Text style={[styles.settingsItemLabel, { color: COLORS.danger }]}>Déconnexion</Text>
-                <Text style={styles.settingsItemSub}>Quitter mon compte</Text>
-              </View>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); handleReport(); }}>
+                <Text style={styles.settingsItemIcon}>🚩</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={styles.settingsItemLabel}>Signaler un abus</Text>
+                  <Text style={styles.settingsItemSub}>Envoyer un signalement à l'admin</Text>
+                </View>
+                <Text style={styles.settingsChevron}>›</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); setRulesModal(true); }}>
+                <Text style={styles.settingsItemIcon}>📋</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={styles.settingsItemLabel}>Règles du quartier</Text>
+                  <Text style={styles.settingsItemSub}>Bonne conduite & charte</Text>
+                </View>
+                <Text style={styles.settingsChevron}>›</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); setFaqModal(true); }}>
+                <Text style={styles.settingsItemIcon}>❓</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={styles.settingsItemLabel}>Aide / FAQ</Text>
+                  <Text style={styles.settingsItemSub}>Questions fréquentes</Text>
+                </View>
+                <Text style={styles.settingsChevron}>›</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); handleContactAdmin(); }}>
+                <Text style={styles.settingsItemIcon}>📱</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={styles.settingsItemLabel}>Contact Admin</Text>
+                  <Text style={styles.settingsItemSub}>WhatsApp ou Email</Text>
+                </View>
+                <Text style={styles.settingsChevron}>›</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); setLogoutModal(true); }}>
+                <Text style={styles.settingsItemIcon}>🚪</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={styles.settingsItemLabel}>Déconnexion</Text>
+                  <Text style={styles.settingsItemSub}>Quitter mon compte</Text>
+                </View>
+                <Text style={styles.settingsChevron}>›</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.settingsItem, styles.settingsItemDanger]} onPress={() => { setSettingsModal(false); setDeleteModal(true); }}>
+                <Text style={styles.settingsItemIcon}>🗑️</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={[styles.settingsItemLabel, { color: COLORS.danger }]}>Supprimer mon compte</Text>
+                  <Text style={styles.settingsItemSub}>Effacer toutes mes données</Text>
+                </View>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* ─── Modal Règles du quartier ─── */}
+      <Modal visible={rulesModal} animationType="slide" onRequestClose={() => setRulesModal(false)}>
+        <View style={styles.fullModalContainer}>
+          <View style={styles.fullModalHeader}>
+            <TouchableOpacity onPress={() => setRulesModal(false)} style={styles.fullModalBack}>
+              <Text style={styles.fullModalBackText}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.fullModalTitle}>📋 Règles du quartier</Text>
+          </View>
+          <ScrollView contentContainerStyle={styles.fullModalContent}>
+            {[
+              { num: "1", title: "Respect mutuel", body: "Traitez chaque voisin avec courtoisie et bienveillance. Les insultes, discriminations et propos haineux sont strictement interdits." },
+              { num: "2", title: "Publications appropriées", body: "Partagez uniquement des contenus liés à la vie du quartier. Évitez les publicités non sollicitées, informations fausses ou contenus choquants." },
+              { num: "3", title: "Confidentialité", body: "Ne partagez pas les informations personnelles d'autres voisins sans leur consentement explicite." },
+              { num: "4", title: "Marché honnête", body: "Décrivez vos articles fidèlement. Toute arnaque ou tromperie entraîne la suspension du compte." },
+              { num: "5", title: "Signalement", body: "En cas de comportement abusif, utilisez l'option 'Signaler un abus' pour alerter les administrateurs." },
+              { num: "6", title: "Urgences", body: "La catégorie Urgences 🚨 est réservée aux situations réelles nécessitant une aide immédiate. Tout abus sera sanctionné." },
+            ].map((rule) => (
+              <View key={rule.num} style={styles.ruleCard}>
+                <View style={styles.ruleNum}>
+                  <Text style={styles.ruleNumText}>{rule.num}</Text>
+                </View>
+                <View style={styles.ruleBody}>
+                  <Text style={styles.ruleTitle}>{rule.title}</Text>
+                  <Text style={styles.ruleText}>{rule.body}</Text>
+                </View>
+              </View>
+            ))}
+            <View style={styles.ruleFooter}>
+              <Text style={styles.ruleFooterText}>Le non-respect de ces règles peut entraîner la suspension ou la suppression de votre compte. Merci de contribuer à un quartier positif ! 🏘️</Text>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ─── Modal Aide / FAQ ─── */}
+      <Modal visible={faqModal} animationType="slide" onRequestClose={() => setFaqModal(false)}>
+        <View style={styles.fullModalContainer}>
+          <View style={styles.fullModalHeader}>
+            <TouchableOpacity onPress={() => setFaqModal(false)} style={styles.fullModalBack}>
+              <Text style={styles.fullModalBackText}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.fullModalTitle}>❓ Aide / FAQ</Text>
+          </View>
+          <ScrollView contentContainerStyle={styles.fullModalContent}>
+            {[
+              {
+                q: "Comment publier une vidéo ?",
+                a: "Depuis l'accueil, appuyez sur le bouton 📹 dans le formulaire de publication. Choisissez une vidéo depuis votre galerie. Elle sera automatiquement uploadée et visible par vos voisins.",
+              },
+              {
+                q: "Comment fonctionne le Wallet ?",
+                a: "Le Wallet affiche votre solde de points QuartierPlus. Le système de paiement complet (transferts, achats) sera disponible prochainement. Restez connecté !",
+              },
+              {
+                q: "Comment envoyer un message vocal ?",
+                a: "Dans l'onglet Messages, appuyez longuement sur le bouton 🎤 pour commencer l'enregistrement, relâchez pour envoyer.",
+              },
+              {
+                q: "Comment contacter un voisin ?",
+                a: "Appuyez sur la photo de profil d'un voisin dans le fil d'actualité. Son profil s'ouvre avec un bouton 💬 Message et 📱 WhatsApp.",
+              },
+              {
+                q: "Comment mettre à jour mon profil ?",
+                a: "Allez dans l'onglet Profil → appuyez sur le bouton ••• en haut à droite → Modifier le profil.",
+              },
+              {
+                q: "Comment signaler un problème ?",
+                a: "Utilisez l'option 'Signaler un abus' dans le menu ••• ou contactez directement l'Admin via WhatsApp.",
+              },
+              {
+                q: "Pourquoi mes données affichent 'Non renseigné' ?",
+                a: "Complétez votre profil via ••• → Modifier le profil. Renseignez votre quartier, ville natale et bio.",
+              },
+            ].map((item, i) => (
+              <View key={i} style={styles.faqItem}>
+                <Text style={styles.faqQ}>💬 {item.q}</Text>
+                <Text style={styles.faqA}>{item.a}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ─── Modal Supprimer le compte ─── */}
+      <Modal visible={deleteModal} transparent animationType="fade" onRequestClose={() => setDeleteModal(false)}>
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.deleteTitle}>🗑️ Supprimer mon compte</Text>
+            <Text style={styles.deleteSub}>
+              Cette action est <Text style={{ fontWeight: "800", color: COLORS.danger }}>irréversible</Text>.{"\n\n"}
+              Toutes vos publications, annonces et données personnelles seront supprimées définitivement de nos serveurs.
+            </Text>
+            <TouchableOpacity
+              style={[styles.confirmBtn, deleting && { backgroundColor: "#E57373" }]}
+              onPress={handleDeleteAccount}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.confirmBtnText}>Oui, supprimer mon compte</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setDeleteModal(false)} disabled={deleting}>
+              <Text style={styles.cancelBtnText}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
       {/* ─── Modal Déconnexion ─── */}
@@ -643,6 +857,30 @@ const styles = StyleSheet.create({
   myPostThumb: { width: "100%", height: 140, borderRadius: 10 },
   myPostVideoTag: { backgroundColor: "#000", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, alignSelf: "flex-start" },
   myPostVideoTagText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  fullModalContainer: { flex: 1, backgroundColor: COLORS.bg },
+  fullModalHeader: {
+    flexDirection: "row", alignItems: "center",
+    paddingTop: Platform.OS === "ios" ? 54 : 20, paddingHorizontal: 16, paddingBottom: 16,
+    backgroundColor: COLORS.card,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+  },
+  fullModalBack: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.bg, alignItems: "center", justifyContent: "center", marginRight: 12 },
+  fullModalBackText: { fontSize: 16, fontWeight: "700", color: COLORS.text },
+  fullModalTitle: { fontSize: 18, fontWeight: "800", color: COLORS.text, flex: 1 },
+  fullModalContent: { padding: 20, paddingBottom: 60 },
+  ruleCard: { flexDirection: "row", backgroundColor: COLORS.card, borderRadius: 14, padding: 16, marginBottom: 12, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+  ruleNum: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", marginRight: 14, flexShrink: 0 },
+  ruleNumText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  ruleBody: { flex: 1 },
+  ruleTitle: { fontSize: 15, fontWeight: "800", color: COLORS.text, marginBottom: 6 },
+  ruleText: { fontSize: 13, color: COLORS.muted, lineHeight: 20 },
+  ruleFooter: { backgroundColor: "#E8F5E9", borderRadius: 14, padding: 16, marginTop: 8 },
+  ruleFooterText: { fontSize: 13, color: COLORS.primary, fontWeight: "600", lineHeight: 20, textAlign: "center" },
+  faqItem: { backgroundColor: COLORS.card, borderRadius: 14, padding: 16, marginBottom: 12, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+  faqQ: { fontSize: 15, fontWeight: "800", color: COLORS.text, marginBottom: 8 },
+  faqA: { fontSize: 13, color: COLORS.muted, lineHeight: 20 },
+  deleteTitle: { fontSize: 20, fontWeight: "800", color: COLORS.danger, textAlign: "center", marginBottom: 12 },
+  deleteSub: { fontSize: 14, color: COLORS.muted, textAlign: "center", marginBottom: 24, lineHeight: 22 },
 });
 
 function getCatColor(cat: string) {

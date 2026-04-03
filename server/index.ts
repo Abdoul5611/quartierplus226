@@ -316,6 +316,19 @@ app.patch("/api/users/:id", async (req, res) => {
   }
 });
 
+// ─── Suppression de compte utilisateur ────────────────────────────────
+app.delete("/api/users/firebase/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    await db.delete(posts).where(eq(posts.authorId, uid));
+    await db.delete(marche).where(eq(marche.vendeurId, uid));
+    await db.delete(users).where(eq(users.firebaseUid, uid));
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── Marché ───────────────────────────────────────────────────────────
 app.get("/api/marche", async (_req, res) => {
   try {

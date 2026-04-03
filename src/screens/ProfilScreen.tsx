@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TextInput,
   Modal,
   Alert,
+  ActionSheetIOS,
   ActivityIndicator,
   ScrollView,
   Image,
@@ -43,6 +44,7 @@ export default function ProfilScreen() {
   const [settingsModal, setSettingsModal] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [photoKey, setPhotoKey] = useState<number>(Date.now());
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -55,11 +57,44 @@ export default function ProfilScreen() {
   const notificationsOn = dbUser?.notifications_enabled !== false;
   const locationVisible = dbUser?.location_visible !== false;
 
+  // ─── Rafraîchissement à chaque ouverture de l'onglet Profil ───────────
   useFocusEffect(
     useCallback(() => {
-      if (firebaseUser) refreshUser();
+      if (firebaseUser) {
+        refreshUser().then(() => setPhotoKey(Date.now()));
+      }
     }, [firebaseUser])
   );
+
+  // ─── ActionSheet natif (iOS ActionSheetIOS / Android Alert) ───────────
+  const openSettingsSheet = () => {
+    const options = ["Modifier le profil", "Contact Admin", "Déconnexion", "Annuler"];
+    const cancelIdx = 3;
+    const destructiveIdx = 2;
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: cancelIdx, destructiveButtonIndex: destructiveIdx, title: "Paramètres" },
+        (idx) => {
+          if (idx === 0) openEditModal();
+          if (idx === 1) handleContactAdmin();
+          if (idx === 2) setLogoutModal(true);
+        }
+      );
+    } else {
+      Alert.alert(
+        "Paramètres",
+        "",
+        [
+          { text: "✏️  Modifier le profil", onPress: openEditModal },
+          { text: "📱  Contact Admin", onPress: handleContactAdmin },
+          { text: "🚪  Déconnexion", onPress: () => setLogoutModal(true), style: "destructive" },
+          { text: "Annuler", style: "cancel" },
+        ],
+        { cancelable: true }
+      );
+    }
+  };
 
   const openEditModal = () => {
     setEditForm({
@@ -159,6 +194,7 @@ export default function ProfilScreen() {
           });
           if (!res.ok) throw new Error("Erreur upload");
           await refreshUser();
+          setPhotoKey(Date.now());
           Alert.alert("✅", "Photo de profil mise à jour !");
         } finally {
           setPhotoUploading(false);
@@ -267,16 +303,24 @@ export default function ProfilScreen() {
 
       {/* ─── Header profil avec bouton ··· ─── */}
       <View style={styles.profileHeader}>
-        <TouchableOpacity style={styles.settingsBtn} onPress={() => setSettingsModal(true)}>
-          <Text style={styles.settingsBtnText}>···</Text>
+        <TouchableOpacity style={styles.settingsBtn} onPress={openSettingsSheet}>
+          <Text style={styles.settingsBtnText}>•••</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.avatarContainer} onPress={handlePickProfilePhoto} disabled={photoUploading}>
           <View style={styles.avatarLarge}>
             {profilePhoto ? (
-              <Image source={{ uri: profilePhoto }} style={styles.avatarImg} />
+              <Image
+                key={photoKey}
+                source={{ uri: `${profilePhoto}?v=${photoKey}` }}
+                style={styles.avatarImg}
+                defaultSource={undefined}
+                onError={() => setPhotoKey(Date.now())}
+              />
             ) : (
-              <Text style={styles.avatarInitial}>{displayNameText[0].toUpperCase()}</Text>
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarInitial}>{displayNameText[0]?.toUpperCase() ?? "?"}</Text>
+              </View>
             )}
             {photoUploading && (
               <View style={styles.avatarLoadingOverlay}>
@@ -336,73 +380,6 @@ export default function ProfilScreen() {
         <Text style={styles.logoutIcon}>🚪</Text>
         <Text style={styles.logoutText}>Se déconnecter</Text>
       </TouchableOpacity>
-
-      {/* ─── Modal Paramètres (···) ─── */}
-      <Modal visible={settingsModal} animationType="slide" transparent onRequestClose={() => setSettingsModal(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSettingsModal(false)}>
-          <TouchableOpacity activeOpacity={1} style={styles.settingsCard} onPress={() => {}}>
-            <View style={styles.settingsHandle} />
-            <Text style={styles.settingsTitle}>Paramètres</Text>
-
-            <TouchableOpacity style={styles.settingsItem} onPress={openEditModal}>
-              <Text style={styles.settingsItemIcon}>✏️</Text>
-              <Text style={styles.settingsItemLabel}>Modifier le profil</Text>
-              <Text style={styles.settingsChevron}>›</Text>
-            </TouchableOpacity>
-
-            <View style={[styles.settingsItem, styles.settingsItemToggle]}>
-              <Text style={styles.settingsItemIcon}>🔔</Text>
-              <View style={styles.settingsItemInfo}>
-                <Text style={styles.settingsItemLabel}>Notifications</Text>
-                <Text style={styles.settingsItemSub}>{notificationsOn ? "Activées" : "Désactivées"}</Text>
-              </View>
-              {savingSettings ? (
-                <ActivityIndicator size="small" color={COLORS.primary} />
-              ) : (
-                <Switch
-                  value={notificationsOn}
-                  onValueChange={toggleNotifications}
-                  trackColor={{ false: COLORS.border, true: "#A5D6A7" }}
-                  thumbColor={notificationsOn ? COLORS.primary : COLORS.muted}
-                />
-              )}
-            </View>
-
-            <View style={[styles.settingsItem, styles.settingsItemToggle]}>
-              <Text style={styles.settingsItemIcon}>📍</Text>
-              <View style={styles.settingsItemInfo}>
-                <Text style={styles.settingsItemLabel}>Ma position visible</Text>
-                <Text style={styles.settingsItemSub}>{locationVisible ? "Visible par les voisins" : "Masquée"}</Text>
-              </View>
-              {savingSettings ? (
-                <ActivityIndicator size="small" color={COLORS.primary} />
-              ) : (
-                <Switch
-                  value={locationVisible}
-                  onValueChange={toggleLocation}
-                  trackColor={{ false: COLORS.border, true: "#A5D6A7" }}
-                  thumbColor={locationVisible ? COLORS.primary : COLORS.muted}
-                />
-              )}
-            </View>
-
-            <TouchableOpacity style={styles.settingsItem} onPress={handleContactAdmin}>
-              <Text style={styles.settingsItemIcon}>📱</Text>
-              <Text style={styles.settingsItemLabel}>Contacter l'Admin</Text>
-              <Text style={styles.settingsChevron}>›</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.settingsItem, styles.settingsItemDanger]}
-              onPress={() => { setSettingsModal(false); setTimeout(() => setLogoutModal(true), 300); }}
-            >
-              <Text style={styles.settingsItemIcon}>🚪</Text>
-              <Text style={[styles.settingsItemLabel, { color: COLORS.danger }]}>Déconnexion</Text>
-              <Text style={styles.settingsChevron}>›</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
 
       {/* ─── Modal Modifier profil ─── */}
       <Modal visible={editModal} animationType="slide" transparent onRequestClose={() => setEditModal(false)}>
@@ -508,6 +485,7 @@ const styles = StyleSheet.create({
   avatarContainer: { position: "relative", marginBottom: 14 },
   avatarLarge: { width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 4, borderColor: "#E8F5E9" },
   avatarImg: { width: 100, height: 100, borderRadius: 50 },
+  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center" },
   avatarInitial: { color: "#fff", fontSize: 40, fontWeight: "800" },
   avatarLoadingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
   avatarPlusBtn: { position: "absolute", bottom: 0, right: 0, width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#fff" },

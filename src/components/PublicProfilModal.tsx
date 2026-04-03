@@ -12,6 +12,7 @@ import {
   Linking,
   Platform,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { api, User, Post } from "../services/api";
 
 const COLORS = {

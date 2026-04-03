@@ -70,6 +70,8 @@ export const api = {
     fetchAPI<Post>("/api/posts", { method: "POST", body: JSON.stringify(data) }),
   likePost: (id: string, userId: string) =>
     fetchAPI<Post>(`/api/posts/${id}/like`, { method: "POST", body: JSON.stringify({ userId }) }),
+  addComment: (postId: string, data: { author_id: string; author_name: string; author_avatar?: string; text: string }) =>
+    fetchAPI<Post>(`/api/posts/${postId}/comments`, { method: "POST", body: JSON.stringify(data) }),
 
   getMarche: () => fetchAPI<MarcheItem[]>("/api/marche"),
   createMarcheItem: (data: Partial<MarcheItem>) =>

@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  Linking,
+  Alert,
 } from "react-native";
 import * as Location from "expo-location";
 import { api, MarcheItem, Post } from "../services/api";
@@ -20,14 +22,14 @@ const COLORS = {
 };
 
 const POINTS_INTERET = [
-  { id: "1", type: "ecole", label: "École Primaire Centrale", icon: "🏫", desc: "100m de vous" },
-  { id: "2", type: "marche", label: "Marché du quartier", icon: "🛒", desc: "250m de vous" },
-  { id: "3", type: "sante", label: "Centre de santé", icon: "🏥", desc: "400m de vous" },
-  { id: "4", type: "mosquee", label: "Grande Mosquée", icon: "🕌", desc: "180m de vous" },
-  { id: "5", type: "eglise", label: "Église Saint-Pierre", icon: "⛪", desc: "320m de vous" },
-  { id: "6", type: "mairie", label: "Mairie du quartier", icon: "🏛️", desc: "500m de vous" },
-  { id: "7", type: "police", label: "Commissariat", icon: "👮", desc: "600m de vous" },
-  { id: "8", type: "pharmacie", label: "Pharmacie Du Peuple", icon: "💊", desc: "150m de vous" },
+  { id: "1", type: "ecole",    label: "École Primaire Centrale", icon: "🏫", desc: "100m de vous",  lat: 5.3600, lng: -4.0080 },
+  { id: "2", type: "marche",   label: "Marché du quartier",      icon: "🛒", desc: "250m de vous",  lat: 5.3614, lng: -4.0102 },
+  { id: "3", type: "sante",    label: "Centre de santé",          icon: "🏥", desc: "400m de vous",  lat: 5.3630, lng: -4.0120 },
+  { id: "4", type: "mosquee",  label: "Grande Mosquée",          icon: "🕌", desc: "180m de vous",  lat: 5.3606, lng: -4.0090 },
+  { id: "5", type: "eglise",   label: "Église Saint-Pierre",     icon: "⛪", desc: "320m de vous",  lat: 5.3620, lng: -4.0110 },
+  { id: "6", type: "mairie",   label: "Mairie du quartier",      icon: "🏛️", desc: "500m de vous",  lat: 5.3645, lng: -4.0135 },
+  { id: "7", type: "police",   label: "Commissariat",            icon: "👮", desc: "600m de vous",  lat: 5.3655, lng: -4.0150 },
+  { id: "8", type: "pharmacie",label: "Pharmacie Du Peuple",     icon: "💊", desc: "150m de vous",  lat: 5.3603, lng: -4.0085 },
 ];
 
 const TYPE_FILTERS = [
@@ -67,6 +69,27 @@ export default function CarteScreen() {
       const [posts, marche] = await Promise.all([api.getPosts(), api.getMarche()]);
       setStats({ posts: posts.length, marche: marche.filter((m) => m.disponible).length });
     } catch {}
+  };
+
+  const openGoogleMaps = async (label: string, lat: number, lng: number) => {
+    const encodedLabel = encodeURIComponent(label);
+    const googleMapsUrl = Platform.select({
+      ios: `comgooglemaps://?daddr=${lat},${lng}&directionsmode=walking`,
+      android: `google.navigation:q=${lat},${lng}`,
+      default: `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodedLabel}`,
+    });
+    const webFallback = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
+    try {
+      const supported = await Linking.canOpenURL(googleMapsUrl!);
+      if (supported) {
+        await Linking.openURL(googleMapsUrl!);
+      } else {
+        await Linking.openURL(webFallback);
+      }
+    } catch {
+      Alert.alert("Erreur", "Impossible d'ouvrir Google Maps.");
+    }
   };
 
   const filteredPoints = filter === "tous"
@@ -161,7 +184,7 @@ export default function CarteScreen() {
               <Text style={styles.pointLabel}>{point.label}</Text>
               <Text style={styles.pointDist}>{point.desc}</Text>
             </View>
-            <TouchableOpacity style={styles.dirBtn}>
+            <TouchableOpacity style={styles.dirBtn} onPress={() => openGoogleMaps(point.label, point.lat, point.lng)}>
               <Text style={styles.dirBtnText}>Itinéraire</Text>
             </TouchableOpacity>
           </TouchableOpacity>

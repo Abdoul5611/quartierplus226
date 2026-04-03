@@ -11,6 +11,10 @@ import {
   Share,
   Dimensions,
   Platform,
+  TextInput,
+  KeyboardAvoidingView,
+  FlatList,
+  SafeAreaView,
 } from "react-native";
 import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
 import * as FileSystem from "expo-file-system";
@@ -257,10 +261,131 @@ function MiniVideo({ uri, onPress }: { uri: string; onPress: () => void }) {
   );
 }
 
+interface Comment {
+  id: string;
+  author_id: string;
+  author_name: string;
+  author_avatar?: string | null;
+  text: string;
+  created_at: string;
+}
+
+function CommentsModal({ visible, post, onClose, onCommentAdded }: {
+  visible: boolean;
+  post: Post;
+  onClose: () => void;
+  onCommentAdded: (updatedPost: Post) => void;
+}) {
+  const { firebaseUser } = useAuth();
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const comments: Comment[] = Array.isArray(post.comments) ? (post.comments as Comment[]) : [];
+
+  const timeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "à l'instant";
+    if (mins < 60) return `il y a ${mins}min`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `il y a ${hrs}h`;
+    return `il y a ${Math.floor(hrs / 24)}j`;
+  };
+
+  const handleSend = async () => {
+    if (!text.trim() || !firebaseUser) return;
+    setSending(true);
+    try {
+      const updated = await api.addComment(post.id, {
+        author_id: firebaseUser.uid,
+        author_name: firebaseUser.displayName || "Voisin",
+        author_avatar: firebaseUser.photoURL || undefined,
+        text: text.trim(),
+      });
+      setText("");
+      onCommentAdded(updated);
+    } catch {
+      Alert.alert("Erreur", "Impossible d'envoyer le commentaire.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <TouchableOpacity style={cm.overlay} activeOpacity={1} onPress={onClose} />
+        <SafeAreaView style={cm.sheet}>
+          <View style={cm.handle} />
+          <View style={cm.sheetHeader}>
+            <Text style={cm.sheetTitle}>Commentaires ({comments.length})</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={cm.sheetClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={comments}
+            keyExtractor={(c) => c.id}
+            style={cm.list}
+            contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 8 }}
+            ListEmptyComponent={
+              <Text style={cm.empty}>Aucun commentaire. Soyez le premier !</Text>
+            }
+            renderItem={({ item }) => (
+              <View style={cm.commentRow}>
+                <View style={cm.commentAvatar}>
+                  {item.author_avatar ? (
+                    <Image source={{ uri: item.author_avatar }} style={cm.commentAvatarImg} />
+                  ) : (
+                    <Text style={cm.commentAvatarLetter}>{(item.author_name || "?")[0].toUpperCase()}</Text>
+                  )}
+                </View>
+                <View style={cm.commentBody}>
+                  <View style={cm.commentMeta}>
+                    <Text style={cm.commentAuthor}>{item.author_name}</Text>
+                    <Text style={cm.commentTime}>{timeAgo(item.created_at)}</Text>
+                  </View>
+                  <Text style={cm.commentText}>{item.text}</Text>
+                </View>
+              </View>
+            )}
+          />
+
+          <View style={cm.inputRow}>
+            <TextInput
+              style={cm.input}
+              placeholder={firebaseUser ? "Écrire un commentaire..." : "Connectez-vous pour commenter"}
+              placeholderTextColor="#9E9E9E"
+              value={text}
+              onChangeText={setText}
+              multiline
+              maxLength={500}
+              editable={!!firebaseUser}
+            />
+            <TouchableOpacity
+              style={[cm.sendBtn, (!text.trim() || sending) && cm.sendBtnDisabled]}
+              onPress={handleSend}
+              disabled={!text.trim() || sending || !firebaseUser}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={cm.sendBtnText}>↑</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 export default function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: PostCardProps) {
   const { firebaseUser } = useAuth();
   const [likes, setLikes] = useState<string[]>(Array.isArray(post.likes) ? post.likes : []);
+  const [comments, setComments] = useState<any[]>(Array.isArray(post.comments) ? post.comments : []);
   const [fullscreenVisible, setFullscreenVisible] = useState(false);
+  const [commentsVisible, setCommentsVisible] = useState(false);
   const isLiked = firebaseUser ? likes.includes(firebaseUser.uid) : false;
   const isAuthor = firebaseUser?.uid === post.author_id;
 
@@ -277,6 +402,8 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
       Alert.alert("Erreur", "Impossible de liker");
     }
   };
+
+  const postWithComments = { ...post, comments };
 
   const timeAgo = (dateStr: string) => {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -352,9 +479,9 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
           <Text style={[styles.actionIcon, isLiked && { color: COLORS.like }]}>{isLiked ? "❤️" : "🤍"}</Text>
           <Text style={[styles.actionCount, isLiked && { color: COLORS.like }]}>{likes.length}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn}>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => setCommentsVisible(true)}>
           <Text style={styles.actionIcon}>💬</Text>
-          <Text style={styles.actionCount}>{Array.isArray(post.comments) ? post.comments.length : 0}</Text>
+          <Text style={styles.actionCount}>{comments.length}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={() => {
           if (mediaUrl) setFullscreenVisible(true);
@@ -380,6 +507,15 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
           onDeleted={onDeleted || onLiked}
         />
       ) : null}
+
+      <CommentsModal
+        visible={commentsVisible}
+        post={postWithComments}
+        onClose={() => setCommentsVisible(false)}
+        onCommentAdded={(updated) => {
+          setComments(Array.isArray(updated.comments) ? updated.comments : []);
+        }}
+      />
     </View>
   );
 }
@@ -478,4 +614,39 @@ const styles = StyleSheet.create({
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
   actionIcon: { fontSize: 20 },
   actionCount: { fontSize: 14, color: COLORS.muted, fontWeight: "600" },
+});
+
+const cm = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
+  sheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "80%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 16,
+  },
+  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#E0E0E0", alignSelf: "center", marginTop: 10, marginBottom: 4 },
+  sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#F0F0F0" },
+  sheetTitle: { fontSize: 16, fontWeight: "700", color: "#1A1A2E" },
+  sheetClose: { fontSize: 18, color: "#9E9E9E", padding: 4 },
+  list: { maxHeight: 320 },
+  empty: { textAlign: "center", color: "#9E9E9E", marginTop: 24, fontSize: 14 },
+  commentRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+  commentAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 },
+  commentAvatarImg: { width: 36, height: 36, borderRadius: 18 },
+  commentAvatarLetter: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  commentBody: { flex: 1, backgroundColor: "#F8F9FA", borderRadius: 12, padding: 10 },
+  commentMeta: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  commentAuthor: { fontWeight: "700", fontSize: 13, color: "#1A1A2E" },
+  commentTime: { fontSize: 11, color: "#9E9E9E" },
+  commentText: { fontSize: 14, color: "#1A1A2E", lineHeight: 20 },
+  inputRow: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: "#F0F0F0", gap: 10 },
+  input: { flex: 1, backgroundColor: "#F8F9FA", borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: "#1A1A2E", maxHeight: 100, borderWidth: 1, borderColor: "#E9ECEF" },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center" },
+  sendBtnDisabled: { backgroundColor: "#C8E6C9" },
+  sendBtnText: { color: "#fff", fontSize: 18, fontWeight: "700" },
 });

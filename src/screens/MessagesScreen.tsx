@@ -13,6 +13,7 @@ import {
   Alert,
 } from "react-native";
 import { Audio } from "expo-av";
+import { useRoute } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
 
 const COLORS = {
@@ -199,6 +200,7 @@ function AudioPlayer({ audioUrl, isMe }: { audioUrl: string; isMe: boolean }) {
 
 export default function MessagesScreen() {
   const { firebaseUser } = useAuth();
+  const route = useRoute<any>();
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
@@ -208,6 +210,18 @@ export default function MessagesScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handledParamRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const params = route.params as { initialChannel?: string; prefillText?: string } | undefined;
+    if (!params?.initialChannel) return;
+    const paramKey = `${params.initialChannel}:${params.prefillText ?? ""}`;
+    if (handledParamRef.current === paramKey) return;
+    handledParamRef.current = paramKey;
+    const channel = CHANNELS.find((c) => c.id === params.initialChannel) || CHANNELS[0];
+    setActiveChannel(channel);
+    if (params.prefillText) setText(params.prefillText);
+  }, [route.params]);
 
   const loadMessages = useCallback(async (channel: string) => {
     try {

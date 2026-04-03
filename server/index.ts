@@ -165,6 +165,36 @@ app.post("/api/posts/:id/like", async (req, res) => {
   }
 });
 
+app.post("/api/posts/:id/comments", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { author_id, author_name, author_avatar, text } = req.body;
+    if (!author_id || !text?.trim()) return res.status(400).json({ error: "author_id et text requis" });
+
+    const [post] = await db.select().from(posts).where(eq(posts.id, id));
+    if (!post) return res.status(404).json({ error: "Post introuvable" });
+
+    const existing: any[] = Array.isArray(post.comments) ? (post.comments as any[]) : [];
+    const newComment = {
+      id: require("crypto").randomUUID(),
+      author_id,
+      author_name,
+      author_avatar: author_avatar || null,
+      text: text.trim(),
+      created_at: new Date().toISOString(),
+    };
+    const updated_comments = [...existing, newComment];
+    const [updated] = await db
+      .update(posts)
+      .set({ comments: updated_comments as any })
+      .where(eq(posts.id, id))
+      .returning();
+    res.json(toSnake(updated));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── Users ────────────────────────────────────────────────────────────
 app.get("/api/users", async (_req, res) => {
   try {

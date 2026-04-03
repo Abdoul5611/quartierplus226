@@ -65,6 +65,7 @@ export interface User {
 
 export const api = {
   getPosts: () => fetchAPI<Post[]>("/api/posts"),
+  getPostsByAuthor: (uid: string) => fetchAPI<Post[]>(`/api/posts/author/${uid}`),
   createPost: (data: Partial<Post>) =>
     fetchAPI<Post>("/api/posts", { method: "POST", body: JSON.stringify(data) }),
   likePost: (id: string, userId: string) =>

@@ -21,6 +21,7 @@ import { Video, ResizeMode } from "expo-av";
 import { api, Post } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import PostCard from "../components/PostCard";
+import PublicProfilModal from "../components/PublicProfilModal";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -54,6 +55,7 @@ export default function AccueilScreen() {
   const [selectedMedia, setSelectedMedia] = useState<{ base64: string; type: "image" | "video"; uri: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [publicProfil, setPublicProfil] = useState<{ authorId: string; authorName: string; authorAvatar?: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -214,7 +216,14 @@ export default function AccueilScreen() {
           data={filteredPosts}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <PostCard post={item} onLiked={fetchPosts} userLocation={userLocation} />
+            <PostCard
+              post={item}
+              onLiked={fetchPosts}
+              userLocation={userLocation}
+              onAuthorPress={(authorId, authorName, authorAvatar) =>
+                setPublicProfil({ authorId, authorName, authorAvatar })
+              }
+            />
           )}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPosts(); }} tintColor={COLORS.primary} />}
           ListEmptyComponent={
@@ -328,6 +337,14 @@ export default function AccueilScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <PublicProfilModal
+        visible={!!publicProfil}
+        authorId={publicProfil?.authorId ?? ""}
+        authorName={publicProfil?.authorName ?? ""}
+        authorAvatar={publicProfil?.authorAvatar}
+        onClose={() => setPublicProfil(null)}
+      />
     </View>
   );
 }

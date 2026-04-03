@@ -51,6 +51,19 @@ app.get("/api/posts", async (_req, res) => {
   }
 });
 
+app.get("/api/posts/author/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const result = await db.select().from(posts)
+      .where(eq(posts.authorId, uid))
+      .orderBy(desc(posts.createdAt))
+      .limit(50);
+    res.json(toSnake(result));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 async function sendExpoPushNotifications(tokens: string[], title: string, body: string, data?: object) {
   if (!tokens.length) return;
   const messages = tokens.map((to) => ({ to, sound: "default", title, body, data: data || {} }));

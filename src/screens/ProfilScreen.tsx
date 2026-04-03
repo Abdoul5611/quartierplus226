@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../context/AuthContext";
-import { api } from "../services/api";
+import { api, Post } from "../services/api";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -45,6 +45,8 @@ export default function ProfilScreen() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [photoKey, setPhotoKey] = useState<number>(Date.now());
+  const [myPosts, setMyPosts] = useState<Post[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -57,13 +59,35 @@ export default function ProfilScreen() {
   const notificationsOn = dbUser?.notifications_enabled !== false;
   const locationVisible = dbUser?.location_visible !== false;
 
+  const loadMyPosts = useCallback(async () => {
+    if (!firebaseUser) return;
+    setPostsLoading(true);
+    try {
+      const data = await api.getPostsByAuthor(firebaseUser.uid);
+      setMyPosts(data);
+    } catch {
+      setMyPosts([]);
+    } finally {
+      setPostsLoading(false);
+    }
+  }, [firebaseUser]);
+
+  // ─── Forcer le chargement immédiat au montage (fix "Non renseigné") ───
+  useEffect(() => {
+    if (firebaseUser) {
+      refreshUser().then(() => setPhotoKey(Date.now()));
+      loadMyPosts();
+    }
+  }, [firebaseUser]);
+
   // ─── Rafraîchissement à chaque ouverture de l'onglet Profil ───────────
   useFocusEffect(
     useCallback(() => {
       if (firebaseUser) {
         refreshUser().then(() => setPhotoKey(Date.now()));
+        loadMyPosts();
       }
-    }, [firebaseUser])
+    }, [firebaseUser, loadMyPosts])
   );
 
   // ─── ActionSheet natif (iOS ActionSheetIOS / Android Alert) ───────────
@@ -381,6 +405,39 @@ export default function ProfilScreen() {
         <Text style={styles.logoutText}>Se déconnecter</Text>
       </TouchableOpacity>
 
+      {/* ─── Mes Publications ─── */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Mes publications ({myPosts.length})</Text>
+        {postsLoading ? (
+          <ActivityIndicator size="small" color={COLORS.primary} style={{ marginVertical: 20 }} />
+        ) : myPosts.length === 0 ? (
+          <View style={styles.emptyPostsBox}>
+            <Text style={styles.emptyPostsIcon}>📭</Text>
+            <Text style={styles.emptyPostsText}>Aucune publication pour le moment</Text>
+          </View>
+        ) : (
+          myPosts.map((p) => (
+            <View key={p.id} style={styles.myPostItem}>
+              <View style={styles.myPostHeader}>
+                <View style={[styles.myPostCatBadge, { backgroundColor: getCatColor(p.category) }]}>
+                  <Text style={styles.myPostCatText}>{getCatLabel(p.category)}</Text>
+                </View>
+                <Text style={styles.myPostTime}>{timeAgoStr(p.created_at)}</Text>
+              </View>
+              <Text style={styles.myPostContent} numberOfLines={3}>{p.content}</Text>
+              {p.image_uri ? (
+                <Image source={{ uri: p.image_uri }} style={styles.myPostThumb} resizeMode="cover" />
+              ) : null}
+              {p.video_uri ? (
+                <View style={styles.myPostVideoTag}>
+                  <Text style={styles.myPostVideoTagText}>📹 Vidéo</Text>
+                </View>
+              ) : null}
+            </View>
+          ))
+        )}
+      </View>
+
       {/* ─── Modal Modifier profil ─── */}
       <Modal visible={editModal} animationType="slide" transparent onRequestClose={() => setEditModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
@@ -538,4 +595,34 @@ const styles = StyleSheet.create({
   confirmBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   cancelBtn: { alignItems: "center", padding: 10 },
   cancelBtnText: { color: COLORS.muted, fontSize: 14 },
+  emptyPostsBox: { alignItems: "center", paddingVertical: 28 },
+  emptyPostsIcon: { fontSize: 36, marginBottom: 8 },
+  emptyPostsText: { fontSize: 14, color: COLORS.muted },
+  myPostItem: { padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border },
+  myPostHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  myPostCatBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  myPostCatText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  myPostTime: { fontSize: 11, color: COLORS.muted },
+  myPostContent: { fontSize: 14, color: COLORS.text, lineHeight: 20, marginBottom: 8 },
+  myPostThumb: { width: "100%", height: 140, borderRadius: 10 },
+  myPostVideoTag: { backgroundColor: "#000", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, alignSelf: "flex-start" },
+  myPostVideoTagText: { color: "#fff", fontSize: 12, fontWeight: "600" },
 });
+
+function getCatColor(cat: string) {
+  const m: Record<string, string> = { general: "#4CAF50", urgence: "#F44336", evenement: "#2196F3", marche: "#FF9800", aide: "#9C27B0" };
+  return m[cat] || "#607D8B";
+}
+function getCatLabel(cat: string) {
+  const m: Record<string, string> = { general: "Général", urgence: "Urgence", evenement: "Événement", marche: "Marché", aide: "Aide" };
+  return m[cat] || cat;
+}
+function timeAgoStr(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "à l'instant";
+  if (mins < 60) return `il y a ${mins}min`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `il y a ${hrs}h`;
+  return `il y a ${Math.floor(hrs / 24)}j`;
+}

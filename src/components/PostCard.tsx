@@ -38,6 +38,7 @@ interface PostCardProps {
   onLiked?: () => void;
   onDeleted?: () => void;
   userLocation?: { latitude: number; longitude: number } | null;
+  onAuthorPress?: (authorId: string, authorName: string, authorAvatar?: string) => void;
 }
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -256,7 +257,7 @@ function MiniVideo({ uri, onPress }: { uri: string; onPress: () => void }) {
   );
 }
 
-export default function PostCard({ post, onLiked, onDeleted, userLocation }: PostCardProps) {
+export default function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: PostCardProps) {
   const { firebaseUser } = useAuth();
   const [likes, setLikes] = useState<string[]>(Array.isArray(post.likes) ? post.likes : []);
   const [fullscreenVisible, setFullscreenVisible] = useState(false);
@@ -303,25 +304,31 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation }: Pos
         </View>
       )}
       <View style={styles.header}>
-        <View style={styles.avatar}>
-          {post.author_avatar ? (
-            <Image source={{ uri: post.author_avatar }} style={styles.avatarImg} />
-          ) : (
-            <Text style={styles.avatarLetter}>{(post.author_name || "?")[0].toUpperCase()}</Text>
-          )}
-        </View>
-        <View style={styles.headerInfo}>
-          <Text style={styles.authorName}>{post.author_name || "Voisin"}</Text>
-          <View style={styles.metaRow}>
-            <Text style={styles.timeText}>{timeAgo(post.created_at)}</Text>
-            {distanceLabel && (
-              <>
-                <Text style={styles.metaDot}>·</Text>
-                <Text style={styles.distanceText}>📍 {distanceLabel}</Text>
-              </>
+        <TouchableOpacity
+          style={styles.authorTouchable}
+          onPress={() => onAuthorPress?.(post.author_id, post.author_name || "Voisin", post.author_avatar)}
+          disabled={!onAuthorPress}
+        >
+          <View style={styles.avatar}>
+            {post.author_avatar ? (
+              <Image source={{ uri: post.author_avatar }} style={styles.avatarImg} />
+            ) : (
+              <Text style={styles.avatarLetter}>{(post.author_name || "?")[0].toUpperCase()}</Text>
             )}
           </View>
-        </View>
+          <View style={styles.headerInfo}>
+            <Text style={styles.authorName}>{post.author_name || "Voisin"}</Text>
+            <View style={styles.metaRow}>
+              <Text style={styles.timeText}>{timeAgo(post.created_at)}</Text>
+              {distanceLabel && (
+                <>
+                  <Text style={styles.metaDot}>·</Text>
+                  <Text style={styles.distanceText}>📍 {distanceLabel}</Text>
+                </>
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
         <View style={[styles.categoryBadge, { backgroundColor: getCategoryColor(post.category) }]}>
           <Text style={styles.categoryText}>{getCategoryLabel(post.category)}</Text>
         </View>
@@ -439,6 +446,7 @@ const styles = StyleSheet.create({
   emergencyBadge: { backgroundColor: "#FFEBEE", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, alignSelf: "flex-start", marginBottom: 10 },
   emergencyText: { color: COLORS.emergency, fontWeight: "700", fontSize: 12 },
   header: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  authorTouchable: { flexDirection: "row", alignItems: "center", flex: 1 },
   avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", marginRight: 10, overflow: "hidden" },
   avatarImg: { width: 44, height: 44, borderRadius: 22 },
   avatarLetter: { color: "#fff", fontSize: 18, fontWeight: "700" },

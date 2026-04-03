@@ -90,15 +90,16 @@ export default function ProfilScreen() {
     }, [firebaseUser, loadMyPosts])
   );
 
-  // ─── ActionSheet natif (iOS ActionSheetIOS / Android Alert) ───────────
+  // ─── Menu Paramètres (iOS: ActionSheet natif / Android+Web: Modal) ─────
   const openSettingsSheet = () => {
-    const options = ["Modifier le profil", "Contact Admin", "Déconnexion", "Annuler"];
-    const cancelIdx = 3;
-    const destructiveIdx = 2;
-
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: cancelIdx, destructiveButtonIndex: destructiveIdx, title: "Paramètres" },
+        {
+          options: ["Modifier le profil", "Contact Admin", "Déconnexion", "Annuler"],
+          cancelButtonIndex: 3,
+          destructiveButtonIndex: 2,
+          title: "Paramètres",
+        },
         (idx) => {
           if (idx === 0) openEditModal();
           if (idx === 1) handleContactAdmin();
@@ -106,17 +107,7 @@ export default function ProfilScreen() {
         }
       );
     } else {
-      Alert.alert(
-        "Paramètres",
-        "",
-        [
-          { text: "✏️  Modifier le profil", onPress: openEditModal },
-          { text: "📱  Contact Admin", onPress: handleContactAdmin },
-          { text: "🚪  Déconnexion", onPress: () => setLogoutModal(true), style: "destructive" },
-          { text: "Annuler", style: "cancel" },
-        ],
-        { cancelable: true }
-      );
+      setSettingsModal(true);
     }
   };
 
@@ -480,6 +471,51 @@ export default function ProfilScreen() {
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ─── Modal Paramètres (Android / Web) ─── */}
+      <Modal visible={settingsModal} transparent animationType="slide" onRequestClose={() => setSettingsModal(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSettingsModal(false)}>
+          <View style={styles.settingsCard}>
+            <View style={styles.settingsHandle} />
+            <Text style={styles.settingsTitle}>Paramètres</Text>
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => { setSettingsModal(false); openEditModal(); }}
+            >
+              <Text style={styles.settingsItemIcon}>✏️</Text>
+              <View style={styles.settingsItemInfo}>
+                <Text style={styles.settingsItemLabel}>Modifier le profil</Text>
+                <Text style={styles.settingsItemSub}>Nom, quartier, bio...</Text>
+              </View>
+              <Text style={styles.settingsChevron}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => { setSettingsModal(false); handleContactAdmin(); }}
+            >
+              <Text style={styles.settingsItemIcon}>📱</Text>
+              <View style={styles.settingsItemInfo}>
+                <Text style={styles.settingsItemLabel}>Contact Admin</Text>
+                <Text style={styles.settingsItemSub}>WhatsApp ou Email</Text>
+              </View>
+              <Text style={styles.settingsChevron}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.settingsItem, styles.settingsItemDanger]}
+              onPress={() => { setSettingsModal(false); setLogoutModal(true); }}
+            >
+              <Text style={styles.settingsItemIcon}>🚪</Text>
+              <View style={styles.settingsItemInfo}>
+                <Text style={[styles.settingsItemLabel, { color: COLORS.danger }]}>Déconnexion</Text>
+                <Text style={styles.settingsItemSub}>Quitter mon compte</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       {/* ─── Modal Déconnexion ─── */}

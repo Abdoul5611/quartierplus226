@@ -54,27 +54,17 @@ export default function PublicProfilModal({ visible, authorId, authorName, autho
 
   const navigation = useNavigation<any>();
 
-  const handleContact = () => {
-    Alert.alert(
-      `Contacter ${authorName}`,
-      "Comment souhaitez-vous le contacter ?",
-      [
-        {
-          text: "💬 Message dans le quartier",
-          onPress: () => {
-            onClose();
-            navigation.navigate("Messages", {
-              initialChannel: "general",
-              prefillText: `@${authorName} `,
-            });
-          },
-        },
-        {
-          text: "📱 WhatsApp",
-          onPress: () => Linking.openURL(`https://wa.me/?text=Bonjour%20${encodeURIComponent(authorName)}%2C%20je%20vous%20contacte%20via%20QuartierPlus%20!`),
-        },
-        { text: "Annuler", style: "cancel" },
-      ]
+  const handleContactMessages = () => {
+    onClose();
+    navigation.navigate("Messages", {
+      initialChannel: "general",
+      prefillText: `@${authorName} `,
+    });
+  };
+
+  const handleContactWhatsApp = () => {
+    Linking.openURL(
+      `https://wa.me/?text=Bonjour%20${encodeURIComponent(authorName)}%2C%20je%20vous%20contacte%20via%20QuartierPlus%20!`
     );
   };
 
@@ -145,11 +135,17 @@ export default function PublicProfilModal({ visible, authorId, authorName, autho
                 </View>
               </View>
 
-              {/* ── Bouton Contacter ── */}
-              <TouchableOpacity style={styles.contactBtn} onPress={handleContact}>
-                <Text style={styles.contactBtnIcon}>💬</Text>
-                <Text style={styles.contactBtnText}>Contacter {displayName.split(" ")[0]}</Text>
-              </TouchableOpacity>
+              {/* ── Boutons Contacter ── */}
+              <View style={styles.contactRow}>
+                <TouchableOpacity style={styles.contactBtn} onPress={handleContactMessages}>
+                  <Text style={styles.contactBtnIcon}>💬</Text>
+                  <Text style={styles.contactBtnText}>Message</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.whatsappBtn} onPress={handleContactWhatsApp}>
+                  <Text style={styles.contactBtnIcon}>📱</Text>
+                  <Text style={styles.whatsappBtnText}>WhatsApp</Text>
+                </TouchableOpacity>
+              </View>
 
               {/* ── Infos ── */}
               {(user?.bio || user?.work || user?.hometown) ? (
@@ -255,13 +251,21 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 20, fontWeight: "800", color: COLORS.primary },
   statLabel: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
   statDivider: { width: 1, height: 32, backgroundColor: COLORS.border, marginHorizontal: 16 },
-  contactBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+  contactRow: {
+    flexDirection: "row", gap: 12,
     marginHorizontal: 20, marginTop: 16, marginBottom: 4,
-    backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 15,
   },
-  contactBtnIcon: { fontSize: 20 },
-  contactBtnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  contactBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 14,
+  },
+  whatsappBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: "#25D366", borderRadius: 14, paddingVertical: 14,
+  },
+  contactBtnIcon: { fontSize: 18 },
+  contactBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  whatsappBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
   section: { margin: 16, backgroundColor: COLORS.card, borderRadius: 16, overflow: "hidden", padding: 16 },
   sectionTitle: { fontSize: 14, fontWeight: "700", color: COLORS.muted, marginBottom: 12 },
   infoRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, gap: 10 },

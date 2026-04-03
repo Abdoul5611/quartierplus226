@@ -16,6 +16,7 @@ import {
   Image,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { Video, ResizeMode } from "expo-av";
 import { api, Post } from "../services/api";
 import { useAuth } from "../context/AuthContext";
@@ -52,6 +53,19 @@ export default function AccueilScreen() {
   const [isEmergency, setIsEmergency] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<{ base64: string; type: "image" | "video"; uri: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") return;
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      } catch {
+      }
+    })();
+  }, []);
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -135,6 +149,8 @@ export default function AccueilScreen() {
         is_emergency: isEmergency,
         image_uri: imageUri,
         video_uri: videoUri,
+        latitude: userLocation?.latitude,
+        longitude: userLocation?.longitude,
       } as any);
 
       setNewContent("");
@@ -169,7 +185,10 @@ export default function AccueilScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>QuartierPlus</Text>
-          <Text style={styles.headerSub}>{dbUser?.quartier || "Mon quartier"}</Text>
+          <Text style={styles.headerSub}>
+            {dbUser?.quartier || "Mon quartier"}
+            {userLocation ? "  📍" : ""}
+          </Text>
         </View>
         <TouchableOpacity style={styles.publishBtn} onPress={() => setModalVisible(true)}>
           <Text style={styles.publishBtnText}>+ Publier</Text>
@@ -194,7 +213,9 @@ export default function AccueilScreen() {
         <FlatList
           data={filteredPosts}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <PostCard post={item} onLiked={fetchPosts} />}
+          renderItem={({ item }) => (
+            <PostCard post={item} onLiked={fetchPosts} userLocation={userLocation} />
+          )}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPosts(); }} tintColor={COLORS.primary} />}
           ListEmptyComponent={
             <View style={styles.empty}>
@@ -207,7 +228,6 @@ export default function AccueilScreen() {
         />
       )}
 
-      {/* ─── Modal Nouvelle publication ─── */}
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={resetModal}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -217,6 +237,12 @@ export default function AccueilScreen() {
                 <Text style={styles.closeBtn}>✕</Text>
               </TouchableOpacity>
             </View>
+
+            {userLocation && (
+              <View style={styles.locationBadge}>
+                <Text style={styles.locationBadgeText}>📍 Position GPS capturée — distance visible par les voisins</Text>
+              </View>
+            )}
 
             <TextInput
               style={styles.textarea}
@@ -265,8 +291,16 @@ export default function AccueilScreen() {
                   <Image source={{ uri: selectedMedia.uri }} style={styles.mediaPreview} resizeMode="cover" />
                 ) : (
                   <View style={styles.videoPreviewBox}>
-                    <Text style={styles.videoPreviewIcon}>🎥</Text>
-                    <Text style={styles.videoPreviewText}>Vidéo sélectionnée</Text>
+                    <Video
+                      source={{ uri: selectedMedia.uri }}
+                      style={{ width: "100%", height: "100%", borderRadius: 12 }}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={false}
+                      useNativeControls={true}
+                    />
+                    <View style={styles.videoPreviewLabel}>
+                      <Text style={styles.videoPreviewText}>🎥 Vidéo sélectionnée</Text>
+                    </View>
                   </View>
                 )}
                 <TouchableOpacity style={styles.removeMediaBtn} onPress={() => setSelectedMedia(null)}>
@@ -280,7 +314,16 @@ export default function AccueilScreen() {
               onPress={handlePublish}
               disabled={!newContent.trim() || uploading}
             >
-              {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Publier</Text>}
+              {uploading ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.submitBtnText}>
+                    {selectedMedia?.type === "video" ? "Upload vidéo..." : "Publication..."}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.submitBtnText}>Publier</Text>
+              )}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -321,9 +364,11 @@ const styles = StyleSheet.create({
   emptySubText: { fontSize: 14, color: COLORS.muted, textAlign: "center", marginTop: 8 },
   modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.5)" },
   modalCard: { backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 44 },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
   modalTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text },
   closeBtn: { fontSize: 22, color: COLORS.muted, padding: 4 },
+  locationBadge: { backgroundColor: "#E8F5E9", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 12 },
+  locationBadgeText: { fontSize: 12, color: COLORS.primary, fontWeight: "600" },
   textarea: { backgroundColor: COLORS.bg, borderRadius: 12, padding: 14, fontSize: 15, color: COLORS.text, minHeight: 100, textAlignVertical: "top", marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
   sectionLabel: { fontSize: 13, fontWeight: "700", color: COLORS.muted, marginBottom: 8 },
   catChip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16, backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border, marginRight: 8 },
@@ -337,9 +382,9 @@ const styles = StyleSheet.create({
   optionLabel: { fontSize: 13, fontWeight: "600", color: COLORS.text },
   mediaPreviewContainer: { position: "relative", marginBottom: 16 },
   mediaPreview: { width: "100%", height: 180, borderRadius: 12 },
-  videoPreviewBox: { backgroundColor: "#000", height: 120, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  videoPreviewIcon: { fontSize: 40 },
-  videoPreviewText: { color: "#fff", marginTop: 8, fontWeight: "600" },
+  videoPreviewBox: { height: 160, borderRadius: 12, backgroundColor: "#000", overflow: "hidden", justifyContent: "flex-end" },
+  videoPreviewLabel: { position: "absolute", bottom: 8, left: 8, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  videoPreviewText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   removeMediaBtn: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 14, width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   submitBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center" },
   submitBtnDisabled: { backgroundColor: "#A5D6A7" },

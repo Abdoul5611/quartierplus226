@@ -52,6 +52,8 @@ export const posts = pgTable("posts", {
   pollOptions: jsonb("poll_options"),
   likes: jsonb("likes").default([]),
   comments: jsonb("comments").default([]),
+  latitude: decimal("latitude"),
+  longitude: decimal("longitude"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -53,7 +53,7 @@ app.get("/api/posts", async (_req, res) => {
 
 app.post("/api/posts", async (req, res) => {
   try {
-    const { author_id, author_name, author_avatar, content, image_uri, video_uri, category, is_emergency } = req.body;
+    const { author_id, author_name, author_avatar, content, image_uri, video_uri, category, is_emergency, latitude, longitude } = req.body;
     const [post] = await db.insert(posts).values({
       authorId: author_id,
       authorName: author_name,
@@ -65,6 +65,8 @@ app.post("/api/posts", async (req, res) => {
       isEmergency: is_emergency || false,
       likes: [],
       comments: [],
+      latitude: latitude != null ? String(latitude) : null,
+      longitude: longitude != null ? String(longitude) : null,
     } as any).returning();
     res.json(toSnake(post));
   } catch (err) {

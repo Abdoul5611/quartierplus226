@@ -19,10 +19,13 @@ export interface Post {
   author_avatar?: string;
   content: string;
   image_uri?: string;
+  video_uri?: string;
   category: string;
   is_emergency: boolean;
   likes: string[];
   comments: any[];
+  latitude?: string | null;
+  longitude?: string | null;
   created_at: string;
 }
 

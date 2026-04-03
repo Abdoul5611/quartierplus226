@@ -74,6 +74,35 @@ app.post("/api/posts", async (req, res) => {
   }
 });
 
+app.delete("/api/posts/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.body;
+    const [post] = await db.select().from(posts).where(eq(posts.id, id));
+    if (!post) return res.status(404).json({ error: "Post introuvable" });
+    if (post.authorId !== userId) return res.status(403).json({ error: "Non autorisé" });
+
+    const extractPublicId = (url: string): string | null => {
+      const match = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[^.]+$/);
+      return match ? match[1] : null;
+    };
+
+    if (post.imageUri) {
+      const pid = extractPublicId(post.imageUri);
+      if (pid) await cloudinary.uploader.destroy(pid, { resource_type: "image" }).catch(() => {});
+    }
+    if (post.videoUri) {
+      const pid = extractPublicId(post.videoUri);
+      if (pid) await cloudinary.uploader.destroy(pid, { resource_type: "video" }).catch(() => {});
+    }
+
+    await db.delete(posts).where(eq(posts.id, id));
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.post("/api/posts/:id/like", async (req, res) => {
   try {
     const { id } = req.params;

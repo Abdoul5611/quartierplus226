@@ -53,6 +53,9 @@ export const posts = pgTable("posts", {
   category: text("category").default("general"),
   isEmergency: boolean("is_emergency").default(false),
   pollOptions: jsonb("poll_options"),
+  isCours: boolean("is_cours").default(false),
+  coursPrice: integer("cours_price"),
+  paidBy: jsonb("paid_by").default([]),
   likes: jsonb("likes").default([]),
   comments: jsonb("comments").default([]),
   latitude: decimal("latitude"),
@@ -169,6 +172,9 @@ export const marche = pgTable("marche", {
   categorie: text("categorie"),
   disponible: boolean("disponible").default(true),
   quartier: text("quartier"),
+  primePartage: boolean("prime_partage").default(false),
+  primeAmount: integer("prime_amount").default(0),
+  vendeurFirebaseUid: text("vendeur_firebase_uid"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -183,6 +189,21 @@ export const messages = pgTable("messages", {
   messageType: text("message_type").default("text"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+export const transactions = pgTable("transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: text("type").notNull(),
+  fromUid: text("from_uid"),
+  toUid: text("to_uid"),
+  amount: integer("amount").notNull(),
+  commission: integer("commission").default(0),
+  description: text("description"),
+  relatedId: text("related_id"),
+  status: text("status").default("completed"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Transaction = typeof transactions.$inferSelect;
 
 export const votes = pgTable("votes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

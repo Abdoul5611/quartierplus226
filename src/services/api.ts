@@ -27,6 +27,9 @@ export interface Post {
   category: string;
   is_emergency: boolean;
   poll_options?: PollOption[] | null;
+  is_cours?: boolean;
+  cours_price?: number | null;
+  paid_by?: string[];
   likes: string[];
   comments: any[];
   latitude?: string | null;
@@ -34,9 +37,23 @@ export interface Post {
   created_at: string;
 }
 
+export interface Transaction {
+  id: string;
+  type: string;
+  from_uid?: string;
+  to_uid?: string;
+  amount: number;
+  commission?: number;
+  description?: string;
+  related_id?: string;
+  status: string;
+  created_at: string;
+}
+
 export interface MarcheItem {
   id: string;
   vendeur_id: string;
+  vendeur_firebase_uid?: string;
   titre: string;
   description?: string;
   prix?: string;
@@ -44,6 +61,8 @@ export interface MarcheItem {
   categorie?: string;
   disponible: boolean;
   quartier?: string;
+  prime_partage?: boolean;
+  prime_amount?: number;
   created_at: string;
 }
 
@@ -125,4 +144,25 @@ export const api = {
 
   getPollResults: (postId: string, userId?: string) =>
     fetchAPI<{ results: number[]; userVote: number | null }>(`/api/polls/${postId}/results?userId=${userId || ""}`),
+
+  payCourse: (postId: string, studentUid: string, teacherUid: string, amount: number) =>
+    fetchAPI<{ success: boolean; newBalance: number }>("/api/wallet/pay-course", {
+      method: "POST",
+      body: JSON.stringify({ postId, studentUid, teacherUid, amount }),
+    }),
+
+  transferPrime: (itemId: string, vendeurUid: string, helperUid: string, amount: number) =>
+    fetchAPI<{ success: boolean }>("/api/wallet/transfer-prime", {
+      method: "POST",
+      body: JSON.stringify({ itemId, vendeurUid, helperUid, amount }),
+    }),
+
+  withdraw: (userUid: string, amount: number) =>
+    fetchAPI<{ success: boolean; net: number; commission: number }>("/api/wallet/withdraw", {
+      method: "POST",
+      body: JSON.stringify({ userUid, amount }),
+    }),
+
+  getTransactions: (uid: string) =>
+    fetchAPI<Transaction[]>(`/api/wallet/transactions/${uid}`),
 };

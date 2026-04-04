@@ -20,7 +20,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../context/AuthContext";
-import { api, Post } from "../services/api";
+import { api, Post, Transaction } from "../services/api";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -52,6 +52,12 @@ export default function ProfilScreen() {
   const [faqModal, setFaqModal] = useState(false);
   const [deleteModal, setDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [walletModal, setWalletModal] = useState(false);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [txLoading, setTxLoading] = useState(false);
+  const [withdrawModal, setWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawing, setWithdrawing] = useState(false);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -426,7 +432,15 @@ export default function ProfilScreen() {
         {[
           { label: "Points", value: dbUser?.points ?? 10, icon: "⭐", onPress: undefined },
           { label: "Mercis", value: dbUser?.merci_count ?? 0, icon: "🙏", onPress: undefined },
-          { label: "Wallet", value: `${(dbUser?.wallet_balance ?? 0).toLocaleString()} F`, icon: "💰", onPress: () => Alert.alert("💰 Wallet", "Système de paiement bientôt disponible.") },
+          { label: "Wallet", value: `${(dbUser?.wallet_balance ?? 0).toLocaleString()} F`, icon: "💰", onPress: async () => {
+            setWalletModal(true);
+            setTxLoading(true);
+            try {
+              const data = await api.getTransactions(firebaseUser.uid);
+              setTransactions(data);
+            } catch { setTransactions([]); }
+            finally { setTxLoading(false); }
+          }},
         ].map((stat, i) => (
           <TouchableOpacity key={i} style={styles.statCard} onPress={stat.onPress} activeOpacity={stat.onPress ? 0.7 : 1}>
             <Text style={styles.statIcon}>{stat.icon}</Text>
@@ -747,6 +761,110 @@ export default function ProfilScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ─── Modal Wallet ─── */}
+      <Modal visible={walletModal} animationType="slide" transparent onRequestClose={() => setWalletModal(false)}>
+        <View style={styles.walletOverlay}>
+          <View style={styles.walletSheet}>
+            <View style={styles.walletHeader}>
+              <Text style={styles.walletTitle}>💰 Mon Wallet</Text>
+              <TouchableOpacity onPress={() => setWalletModal(false)}>
+                <Text style={styles.walletClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.walletBalanceBox}>
+              <Text style={styles.walletBalanceLabel}>Solde disponible</Text>
+              <Text style={styles.walletBalanceAmount}>{(dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA</Text>
+              <TouchableOpacity style={styles.walletWithdrawBtn} onPress={() => { setWithdrawModal(true); }}>
+                <Text style={styles.walletWithdrawBtnText}>🏦 Faire un retrait</Text>
+              </TouchableOpacity>
+              <Text style={styles.walletCommissionNote}>Commission de 10% appliquée sur chaque retrait</Text>
+            </View>
+            <Text style={styles.walletTxTitle}>Historique des transactions</Text>
+            {txLoading ? (
+              <ActivityIndicator color={COLORS.primary} style={{ marginTop: 20 }} />
+            ) : transactions.length === 0 ? (
+              <Text style={styles.walletEmpty}>Aucune transaction pour le moment</Text>
+            ) : (
+              <ScrollView style={styles.walletTxList}>
+                {transactions.map((tx) => {
+                  const isDebit = tx.from_uid === firebaseUser?.uid;
+                  const typeLabel: Record<string, string> = {
+                    course_payment: "Cours payé",
+                    prime_transfer: "Prime de partage",
+                    withdrawal: "Retrait",
+                    commission: "Commission admin",
+                  };
+                  return (
+                    <View key={tx.id} style={styles.txRow}>
+                      <View style={styles.txLeft}>
+                        <Text style={styles.txType}>{typeLabel[tx.type] || tx.type}</Text>
+                        <Text style={styles.txDesc} numberOfLines={1}>{tx.description || ""}</Text>
+                        <Text style={styles.txDate}>{new Date(tx.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}</Text>
+                      </View>
+                      <Text style={[styles.txAmount, isDebit ? styles.txDebit : styles.txCredit]}>
+                        {isDebit ? "-" : "+"}{(tx.amount).toLocaleString("fr-FR")} F
+                      </Text>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── Modal Retrait ─── */}
+      <Modal visible={withdrawModal} animationType="fade" transparent onRequestClose={() => setWithdrawModal(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>🏦 Retrait</Text>
+            <Text style={styles.confirmSub}>
+              Solde: {(dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA{"\n"}
+              Commission 10% déduite. Montant net = 90% du retrait.
+            </Text>
+            <TextInput
+              style={styles.withdrawInput}
+              value={withdrawAmount}
+              onChangeText={setWithdrawAmount}
+              keyboardType="numeric"
+              placeholder="Montant à retirer (FCFA)"
+              placeholderTextColor={COLORS.muted}
+            />
+            {withdrawAmount ? (
+              <Text style={styles.withdrawNet}>
+                Vous recevrez: {(parseInt(withdrawAmount || "0") * 0.9).toLocaleString("fr-FR")} FCFA
+              </Text>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.confirmBtn, (!withdrawAmount || withdrawing) && { opacity: 0.6 }]}
+              disabled={!withdrawAmount || withdrawing}
+              onPress={async () => {
+                const amount = parseInt(withdrawAmount);
+                if (!amount || amount <= 0) return;
+                setWithdrawing(true);
+                try {
+                  const result = await api.withdraw(firebaseUser!.uid, amount);
+                  setWithdrawModal(false);
+                  setWithdrawAmount("");
+                  setWalletModal(false);
+                  await refreshUser();
+                  Alert.alert("✅ Retrait effectué", `Vous recevrez ${result.net.toLocaleString("fr-FR")} FCFA.\nCommission prélevée: ${result.commission.toLocaleString("fr-FR")} FCFA.`);
+                } catch (e: any) {
+                  Alert.alert("Erreur", e.message || "Impossible d'effectuer le retrait.");
+                } finally {
+                  setWithdrawing(false);
+                }
+              }}
+            >
+              {withdrawing ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmBtnText}>Confirmer le retrait</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => { setWithdrawModal(false); setWithdrawAmount(""); }}>
+              <Text style={styles.cancelBtnText}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
   );
 }
@@ -857,6 +975,30 @@ const styles = StyleSheet.create({
   myPostThumb: { width: "100%", height: 140, borderRadius: 10 },
   myPostVideoTag: { backgroundColor: "#000", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, alignSelf: "flex-start" },
   myPostVideoTagText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  walletOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  walletSheet: { backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 50, maxHeight: "85%" },
+  walletHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  walletTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text },
+  walletClose: { fontSize: 22, color: COLORS.muted, padding: 4 },
+  walletBalanceBox: { backgroundColor: COLORS.primary, borderRadius: 18, padding: 20, alignItems: "center", marginBottom: 20 },
+  walletBalanceLabel: { color: "rgba(255,255,255,0.8)", fontSize: 13, fontWeight: "600", marginBottom: 4 },
+  walletBalanceAmount: { color: "#fff", fontSize: 32, fontWeight: "900", marginBottom: 14 },
+  walletWithdrawBtn: { backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 12, paddingVertical: 10, paddingHorizontal: 20, marginBottom: 8 },
+  walletWithdrawBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  walletCommissionNote: { color: "rgba(255,255,255,0.7)", fontSize: 11, textAlign: "center" },
+  walletTxTitle: { fontSize: 16, fontWeight: "700", color: COLORS.text, marginBottom: 12 },
+  walletEmpty: { color: COLORS.muted, textAlign: "center", fontSize: 14, marginTop: 20, marginBottom: 20 },
+  walletTxList: { maxHeight: 320 },
+  txRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  txLeft: { flex: 1, marginRight: 12 },
+  txType: { fontSize: 13, fontWeight: "700", color: COLORS.text },
+  txDesc: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  txDate: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  txAmount: { fontSize: 15, fontWeight: "800" },
+  txDebit: { color: "#D32F2F" },
+  txCredit: { color: "#2E7D32" },
+  withdrawInput: { backgroundColor: COLORS.bg, borderRadius: 12, padding: 12, fontSize: 16, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8, textAlign: "center" },
+  withdrawNet: { fontSize: 13, color: COLORS.primary, fontWeight: "600", textAlign: "center", marginBottom: 16 },
   fullModalContainer: { flex: 1, backgroundColor: COLORS.bg },
   fullModalHeader: {
     flexDirection: "row", alignItems: "center",

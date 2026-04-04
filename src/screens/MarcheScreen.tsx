@@ -14,6 +14,7 @@ import {
   Platform,
   ScrollView,
   Image,
+  Switch,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
@@ -44,6 +45,8 @@ export default function MarcheScreen() {
   const [selectedImage, setSelectedImage] = useState<{ base64: string; uri: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState<MarcheItem | null>(null);
+  const [primePartage, setPrimePartage] = useState(false);
+  const [primeAmount, setPrimeAmount] = useState("");
 
   const fetchItems = useCallback(async () => {
     try {
@@ -97,6 +100,7 @@ export default function MarcheScreen() {
       }
       await api.createMarcheItem({
         vendeur_id: firebaseUser.uid,
+        vendeur_firebase_uid: firebaseUser.uid,
         titre: newItem.titre.trim(),
         description: newItem.description.trim() || undefined,
         prix: newItem.prix.trim() || undefined,
@@ -104,9 +108,13 @@ export default function MarcheScreen() {
         quartier: newItem.quartier.trim() || dbUser?.quartier || undefined,
         image_url: imageUrl,
         disponible: true,
+        prime_partage: primePartage,
+        prime_amount: primePartage ? (parseInt(primeAmount) || 0) : 0,
       } as any);
       setNewItem({ titre: "", description: "", prix: "", categorie: "", quartier: "" });
       setSelectedImage(null);
+      setPrimePartage(false);
+      setPrimeAmount("");
       setModalVisible(false);
       fetchItems();
       Alert.alert("✅", "Votre annonce a été publiée !");
@@ -202,6 +210,11 @@ export default function MarcheScreen() {
                   <Text style={styles.detailCatText}>{selected.categorie}</Text>
                 </View>
               ) : null}
+              {selected?.prime_partage && (
+                <View style={styles.primeBadge}>
+                  <Text style={styles.primeBadgeText}>🎁 Prime de partage : {(selected.prime_amount || 0).toLocaleString("fr-FR")} FCFA</Text>
+                </View>
+              )}
               <TouchableOpacity
                 style={styles.contactBtn}
                 onPress={() => {
@@ -215,6 +228,35 @@ export default function MarcheScreen() {
               >
                 <Text style={styles.contactBtnText}>💬 Contacter le vendeur</Text>
               </TouchableOpacity>
+              {selected?.prime_partage && selected?.vendeur_firebase_uid && firebaseUser && selected.vendeur_firebase_uid !== firebaseUser.uid && (
+                <TouchableOpacity
+                  style={styles.primeBtn}
+                  onPress={async () => {
+                    const amount = selected.prime_amount || 0;
+                    if (amount <= 0) return Alert.alert("", "Aucune prime définie pour cet article.");
+                    Alert.alert(
+                      "Recevoir la prime",
+                      `Le vendeur vous proposait ${amount.toLocaleString("fr-FR")} FCFA si vous l'avez aidé à vendre. Confirmer ?`,
+                      [
+                        { text: "Annuler", style: "cancel" },
+                        {
+                          text: "Confirmer",
+                          onPress: async () => {
+                            try {
+                              await api.transferPrime(selected.id, selected.vendeur_firebase_uid!, firebaseUser.uid, amount);
+                              Alert.alert("✅ Prime reçue !", `${amount.toLocaleString("fr-FR")} FCFA ajoutés à votre wallet.`);
+                            } catch (e: any) {
+                              Alert.alert("Erreur", e.message || "Impossible de transférer la prime.");
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                >
+                  <Text style={styles.primeBtnText}>🎁 Recevoir ma prime ({(selected.prime_amount || 0).toLocaleString("fr-FR")} FCFA)</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={styles.closeDetailBtn} onPress={() => setSelected(null)}>
                 <Text style={styles.closeDetailBtnText}>Fermer</Text>
               </TouchableOpacity>
@@ -284,6 +326,35 @@ export default function MarcheScreen() {
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+
+              {/* ─── Prime de partage ─── */}
+              <View style={styles.primeBox}>
+                <View style={styles.primeRow}>
+                  <View style={styles.primeInfo}>
+                    <Text style={styles.primeTitle}>🎁 Prime de partage</Text>
+                    <Text style={styles.primeSub}>Récompensez un voisin qui vous aide à vendre</Text>
+                  </View>
+                  <Switch
+                    value={primePartage}
+                    onValueChange={setPrimePartage}
+                    trackColor={{ false: COLORS.border, true: "#A5D6A7" }}
+                    thumbColor={primePartage ? COLORS.primary : "#f4f3f4"}
+                  />
+                </View>
+                {primePartage && (
+                  <View style={styles.primeAmountRow}>
+                    <Text style={styles.primeAmountLabel}>Montant de la prime (FCFA)</Text>
+                    <TextInput
+                      style={styles.primeAmountInput}
+                      value={primeAmount}
+                      onChangeText={setPrimeAmount}
+                      keyboardType="numeric"
+                      placeholder="ex: 500"
+                      placeholderTextColor={COLORS.muted}
+                    />
+                  </View>
+                )}
+              </View>
 
               <TouchableOpacity
                 style={[styles.submitBtn, (!newItem.titre.trim() || uploading) && styles.submitBtnDisabled]}
@@ -365,6 +436,18 @@ const styles = StyleSheet.create({
   fieldGroup: { marginBottom: 14 },
   fieldLabel: { fontSize: 13, fontWeight: "700", color: COLORS.muted, marginBottom: 6 },
   input: { backgroundColor: COLORS.bg, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border },
+  primeBox: { backgroundColor: "#F1F8F1", borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: "#A5D6A7" },
+  primeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  primeInfo: { flex: 1, marginRight: 10 },
+  primeTitle: { fontSize: 14, fontWeight: "700", color: COLORS.primary },
+  primeSub: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  primeAmountRow: { marginTop: 12 },
+  primeAmountLabel: { fontSize: 13, fontWeight: "600", color: COLORS.muted, marginBottom: 6 },
+  primeAmountInput: { backgroundColor: COLORS.card, borderRadius: 10, padding: 10, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border },
+  primeBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "#E8F5E9", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, alignSelf: "flex-start", marginBottom: 14, gap: 6 },
+  primeBadgeText: { color: COLORS.primary, fontWeight: "700", fontSize: 13 },
+  primeBtn: { backgroundColor: "#1B5E20", borderRadius: 14, paddingVertical: 13, alignItems: "center", marginBottom: 10 },
+  primeBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   catChip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16, backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.border, marginRight: 8 },
   catChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   catChipText: { color: COLORS.muted, fontWeight: "600", fontSize: 13 },

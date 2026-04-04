@@ -461,8 +461,40 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
   const [comments, setComments] = useState<any[]>(Array.isArray(post.comments) ? post.comments : []);
   const [fullscreenVisible, setFullscreenVisible] = useState(false);
   const [commentsVisible, setCommentsVisible] = useState(false);
+  const [payingCours, setPayingCours] = useState(false);
+  const [hasPaid, setHasPaid] = useState<boolean>(() => {
+    if (!firebaseUser || !post.is_cours) return false;
+    return Array.isArray(post.paid_by) && post.paid_by.includes(firebaseUser.uid);
+  });
   const isLiked = firebaseUser ? likes.includes(firebaseUser.uid) : false;
   const isAuthor = firebaseUser?.uid === post.author_id;
+
+  const handlePayCours = async () => {
+    if (!firebaseUser) { Alert.alert("Connexion requise", "Connectez-vous pour accéder à ce cours."); return; }
+    const price = post.cours_price || 0;
+    Alert.alert(
+      "💳 Accéder au cours",
+      `Ce cours coûte ${price.toLocaleString("fr-FR")} FCFA. Le montant sera débité de votre wallet.\n\nConfirmer ?`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: `Payer ${price.toLocaleString("fr-FR")} F`,
+          onPress: async () => {
+            setPayingCours(true);
+            try {
+              await api.payCourse(post.id, firebaseUser.uid, post.author_id, price);
+              setHasPaid(true);
+              Alert.alert("✅ Accès accordé !", "Vous avez maintenant accès à ce cours. Votre wallet a été débité.");
+            } catch (e: any) {
+              Alert.alert("Erreur de paiement", e.message || "Impossible de traiter le paiement.");
+            } finally {
+              setPayingCours(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const mediaUrl = post.video_uri || post.image_uri || "";
   const mediaType: "image" | "video" = post.video_uri ? "video" : "image";
@@ -536,22 +568,46 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
         </View>
       </View>
 
+      {post.is_cours && (
+        <View style={styles.coursBadge}>
+          <Text style={styles.coursBadgeText}>🎓 Cours · {(post.cours_price || 0).toLocaleString("fr-FR")} FCFA</Text>
+          {(hasPaid || isAuthor) && <Text style={styles.coursAccessLabel}>✓ Accès débloqué</Text>}
+        </View>
+      )}
+
       <Text style={styles.content}>{post.content}</Text>
 
       {post.poll_options && Array.isArray(post.poll_options) && (post.poll_options as any[]).length > 0 && (
         <PollWidget post={post} />
       )}
 
-      {post.video_uri ? (
-        <MiniVideo uri={post.video_uri} onPress={() => setFullscreenVisible(true)} />
-      ) : post.image_uri ? (
-        <TouchableOpacity activeOpacity={0.9} onPress={() => setFullscreenVisible(true)}>
-          <Image source={{ uri: post.image_uri }} style={styles.postImage} resizeMode="cover" />
-          <View style={styles.imageExpandHint}>
-            <Text style={styles.imageExpandIcon}>⛶</Text>
-          </View>
-        </TouchableOpacity>
-      ) : null}
+      {post.is_cours && !hasPaid && !isAuthor ? (
+        <View style={styles.coursGate}>
+          <Text style={styles.coursGateIcon}>🔒</Text>
+          <Text style={styles.coursGateText}>Contenu réservé aux élèves inscrits</Text>
+          <Text style={styles.coursGateSub}>Payez pour accéder aux médias et détails complets de ce cours</Text>
+          <TouchableOpacity style={styles.coursPayBtn} onPress={handlePayCours} disabled={payingCours}>
+            {payingCours ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.coursPayBtnText}>💳 Payer {(post.cours_price || 0).toLocaleString("fr-FR")} FCFA pour accéder</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          {post.video_uri ? (
+            <MiniVideo uri={post.video_uri} onPress={() => setFullscreenVisible(true)} />
+          ) : post.image_uri ? (
+            <TouchableOpacity activeOpacity={0.9} onPress={() => setFullscreenVisible(true)}>
+              <Image source={{ uri: post.image_uri }} style={styles.postImage} resizeMode="cover" />
+              <View style={styles.imageExpandHint}>
+                <Text style={styles.imageExpandIcon}>⛶</Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
+        </>
+      )}
 
       <View style={styles.actions}>
         <TouchableOpacity style={styles.actionBtn} onPress={handleLike}>
@@ -712,6 +768,15 @@ const styles = StyleSheet.create({
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
   actionIcon: { fontSize: 20 },
   actionCount: { fontSize: 14, color: COLORS.muted, fontWeight: "600" },
+  coursBadge: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#E8F5E9", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 10 },
+  coursBadgeText: { color: COLORS.primary, fontWeight: "700", fontSize: 13 },
+  coursAccessLabel: { color: "#2E7D32", fontSize: 12, fontWeight: "600" },
+  coursGate: { backgroundColor: "#F3F4F6", borderRadius: 14, padding: 18, marginBottom: 12, alignItems: "center", borderWidth: 1, borderColor: "#E9ECEF", borderStyle: "dashed" as any },
+  coursGateIcon: { fontSize: 36, marginBottom: 8 },
+  coursGateText: { fontSize: 15, fontWeight: "700", color: COLORS.text, textAlign: "center", marginBottom: 4 },
+  coursGateSub: { fontSize: 13, color: COLORS.muted, textAlign: "center", marginBottom: 14 },
+  coursPayBtn: { backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20, alignItems: "center", width: "100%" },
+  coursPayBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });
 
 const cm = StyleSheet.create({

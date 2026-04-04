@@ -1,7 +1,7 @@
 import express from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { db } from "../db";
-import { users, posts, marche, publications, messages, votes } from "../db/schema";
+import { users, posts, marche, publications, messages, votes, transactions } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 
@@ -80,7 +80,7 @@ async function sendExpoPushNotifications(tokens: string[], title: string, body: 
 
 app.post("/api/posts", async (req, res) => {
   try {
-    const { author_id, author_name, author_avatar, content, image_uri, video_uri, category, is_emergency, latitude, longitude, poll_options } = req.body;
+    const { author_id, author_name, author_avatar, content, image_uri, video_uri, category, is_emergency, latitude, longitude, poll_options, is_cours, cours_price } = req.body;
     const [post] = await db.insert(posts).values({
       authorId: author_id,
       authorName: author_name,
@@ -91,6 +91,9 @@ app.post("/api/posts", async (req, res) => {
       category: category || "general",
       isEmergency: is_emergency || false,
       pollOptions: poll_options || null,
+      isCours: is_cours || false,
+      coursPrice: cours_price || null,
+      paidBy: [],
       likes: [],
       comments: [],
       latitude: latitude != null ? String(latitude) : null,
@@ -394,8 +397,10 @@ app.get("/api/marche", async (_req, res) => {
 app.post("/api/marche", async (req, res) => {
   try {
     const { vendeur_id, titre, description, prix, categorie, quartier, image_url, disponible } = req.body;
+    const { prime_partage, prime_amount, vendeur_firebase_uid } = req.body;
     const [item] = await db.insert(marche).values({
       vendeurId: vendeur_id,
+      vendeurFirebaseUid: vendeur_firebase_uid || null,
       titre,
       description,
       prix: prix || null,
@@ -403,6 +408,8 @@ app.post("/api/marche", async (req, res) => {
       quartier,
       imageUrl: image_url,
       disponible: disponible !== false,
+      primePartage: prime_partage || false,
+      primeAmount: prime_amount || 0,
     } as any).returning();
     res.json(toSnake(item));
   } catch (err) {
@@ -486,7 +493,127 @@ app.post("/api/voice-messages", async (req, res) => {
   }
 });
 
-// ─── Upload ───────────────────────────────────────────────────────────
+// ─── Wallet / Monétisation ─────────────────────────────────────────────
+const COMMISSION_RATE = 0.10; // 10%
+const ADMIN_UID = "quartierplus-admin";
+
+async function logTransaction(type: string, fromUid: string | null, toUid: string | null, amount: number, commission: number, description: string, relatedId?: string) {
+  await db.insert(transactions).values({
+    type, fromUid, toUid, amount, commission, description,
+    relatedId: relatedId || null,
+    status: "completed",
+  } as any);
+}
+
+// Payer pour un cours
+app.post("/api/wallet/pay-course", async (req, res) => {
+  try {
+    const { postId, studentUid, teacherUid, amount } = req.body;
+    if (!postId || !studentUid || !teacherUid || !amount) return res.status(400).json({ error: "Paramètres manquants" });
+
+    const [student] = await db.select().from(users).where(eq(users.firebaseUid, studentUid));
+    const [teacher] = await db.select().from(users).where(eq(users.firebaseUid, teacherUid));
+    if (!student) return res.status(404).json({ error: "Élève introuvable" });
+    if (!teacher) return res.status(404).json({ error: "Professeur introuvable" });
+
+    const studentBalance = student.walletBalance ?? 0;
+    if (studentBalance < amount) return res.status(402).json({ error: `Solde insuffisant. Vous avez ${studentBalance} F, cours coûte ${amount} F.` });
+
+    const [post] = await db.select().from(posts).where(eq(posts.id, postId));
+    if (!post) return res.status(404).json({ error: "Cours introuvable" });
+    const alreadyPaid: string[] = Array.isArray(post.paidBy) ? (post.paidBy as string[]) : [];
+    if (alreadyPaid.includes(studentUid)) return res.status(409).json({ error: "Vous avez déjà payé ce cours" });
+
+    await db.update(users).set({ walletBalance: studentBalance - amount } as any).where(eq(users.firebaseUid, studentUid));
+    await db.update(users).set({ walletBalance: (teacher.walletBalance ?? 0) + amount } as any).where(eq(users.firebaseUid, teacherUid));
+    await db.update(posts).set({ paidBy: [...alreadyPaid, studentUid] } as any).where(eq(posts.id, postId));
+
+    await logTransaction("course_payment", studentUid, teacherUid, amount, 0,
+      `Paiement cours: "${post.content?.slice(0, 40) || "Cours"}"`, postId);
+
+    res.json({ success: true, newBalance: studentBalance - amount });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Transférer une prime de partage
+app.post("/api/wallet/transfer-prime", async (req, res) => {
+  try {
+    const { itemId, vendeurUid, helperUid, amount } = req.body;
+    if (!itemId || !vendeurUid || !helperUid || !amount) return res.status(400).json({ error: "Paramètres manquants" });
+
+    const [vendeur] = await db.select().from(users).where(eq(users.firebaseUid, vendeurUid));
+    const [helper] = await db.select().from(users).where(eq(users.firebaseUid, helperUid));
+    if (!vendeur) return res.status(404).json({ error: "Vendeur introuvable" });
+    if (!helper) return res.status(404).json({ error: "Aidant introuvable" });
+
+    const vendeurBalance = vendeur.walletBalance ?? 0;
+    if (vendeurBalance < amount) return res.status(402).json({ error: `Solde vendeur insuffisant (${vendeurBalance} F disponibles)` });
+
+    const [item] = await db.select().from(marche).where(eq(marche.id, itemId));
+    if (!item) return res.status(404).json({ error: "Article introuvable" });
+
+    await db.update(users).set({ walletBalance: vendeurBalance - amount } as any).where(eq(users.firebaseUid, vendeurUid));
+    await db.update(users).set({ walletBalance: (helper.walletBalance ?? 0) + amount } as any).where(eq(users.firebaseUid, helperUid));
+
+    await logTransaction("prime_transfer", vendeurUid, helperUid, amount, 0,
+      `Prime de partage: "${item.titre?.slice(0, 40) || "Article"}"`, itemId);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Retrait avec commission 10%
+app.post("/api/wallet/withdraw", async (req, res) => {
+  try {
+    const { userUid, amount } = req.body;
+    if (!userUid || !amount || amount <= 0) return res.status(400).json({ error: "Paramètres invalides" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const balance = user.walletBalance ?? 0;
+    if (balance < amount) return res.status(402).json({ error: `Solde insuffisant (${balance} F disponibles)` });
+
+    const commission = Math.ceil(amount * COMMISSION_RATE);
+    const net = amount - commission;
+
+    await db.update(users).set({ walletBalance: balance - amount } as any).where(eq(users.firebaseUid, userUid));
+
+    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, ADMIN_UID));
+    if (admin) {
+      await db.update(users).set({ walletBalance: (admin.walletBalance ?? 0) + commission } as any).where(eq(users.firebaseUid, ADMIN_UID));
+    }
+
+    await logTransaction("withdrawal", userUid, null, net, commission,
+      `Retrait de ${amount.toLocaleString("fr-FR")} F (commission: ${commission} F)`, undefined);
+    await logTransaction("commission", userUid, ADMIN_UID, commission, 0,
+      `Commission retrait ${user.displayName || userUid}`, undefined);
+
+    res.json({ success: true, net, commission, newBalance: balance - amount });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Historique des transactions
+app.get("/api/wallet/transactions/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const result = await db.select().from(transactions)
+      .where(drizzleSql`${transactions.fromUid} = ${uid} OR ${transactions.toUid} = ${uid}`)
+      .orderBy(desc(transactions.createdAt))
+      .limit(50);
+    res.json(toSnake(result));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Upload ───────────────────────────────────────────────────────────
 app.post("/api/upload/image", async (req, res) => {
   try {
     const { base64, folder } = req.body;

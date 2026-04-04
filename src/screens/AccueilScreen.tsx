@@ -59,6 +59,8 @@ export default function AccueilScreen() {
   const [pollMode, setPollMode] = useState(false);
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollChoices, setPollChoices] = useState(["Oui", "Non"]);
+  const [coursMode, setCoursMode] = useState(false);
+  const [coursPrice, setCoursPrice] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -160,12 +162,16 @@ export default function AccueilScreen() {
         latitude: userLocation?.latitude,
         longitude: userLocation?.longitude,
         poll_options: pollMode ? pollChoices.map((c) => ({ label: c.trim() })) : undefined,
+        is_cours: coursMode,
+        cours_price: coursMode ? (parseInt(coursPrice) || 0) : undefined,
       } as any);
 
       setNewContent("");
       setNewCategory("general");
       setIsEmergency(false);
       setSelectedMedia(null);
+      setCoursMode(false);
+      setCoursPrice("");
       setModalVisible(false);
       fetchPosts();
     } catch (e: any) {

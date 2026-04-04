@@ -194,11 +194,17 @@ export default function AccueilScreen() {
     setCoursPrice("");
   };
 
-  const filteredPosts = filter === "tous"
+  const nowAcc = new Date();
+  const filteredPosts = (filter === "tous"
     ? posts
     : filter === "urgence"
     ? posts.filter((p) => p.is_emergency || p.category === "urgence")
-    : posts.filter((p) => p.category === filter);
+    : posts.filter((p) => p.category === filter)
+  ).sort((a, b) => {
+    const aB = a.is_boosted && a.boost_expires_at && new Date(a.boost_expires_at) > nowAcc ? 1 : 0;
+    const bB = b.is_boosted && b.boost_expires_at && new Date(b.boost_expires_at) > nowAcc ? 1 : 0;
+    return bB - aB;
+  });
 
   return (
     <View style={styles.container}>

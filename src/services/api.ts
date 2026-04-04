@@ -34,6 +34,8 @@ export interface Post {
   comments: any[];
   latitude?: string | null;
   longitude?: string | null;
+  is_boosted?: boolean;
+  boost_expires_at?: string | null;
   created_at: string;
 }
 
@@ -63,6 +65,8 @@ export interface MarcheItem {
   quartier?: string;
   prime_partage?: boolean;
   prime_amount?: number;
+  is_boosted?: boolean;
+  boost_expires_at?: string | null;
   created_at: string;
 }
 
@@ -166,6 +170,12 @@ export const api = {
   getTransactions: (uid: string) =>
     fetchAPI<Transaction[]>(`/api/wallet/transactions/${uid}`),
 
+  boostItem: (userUid: string, targetId: string, targetType: "post" | "marche") =>
+    fetchAPI<{ success: boolean; newBalance: number; boostExpiresAt: string }>("/api/wallet/boost", {
+      method: "POST",
+      body: JSON.stringify({ userUid, targetId, targetType }),
+    }),
+
   getAdminDashboard: (email: string) =>
     fetchAPI<{
       total_commissions: number;
@@ -173,6 +183,7 @@ export const api = {
       total_course_payments: number;
       total_primes: number;
       total_withdrawals: number;
+      total_boost_revenue: number;
       transaction_count: number;
       transactions_by_type: Record<string, number>;
       user_count: number;

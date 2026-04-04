@@ -462,12 +462,46 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
   const [fullscreenVisible, setFullscreenVisible] = useState(false);
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [payingCours, setPayingCours] = useState(false);
+  const [boosting, setBoosting] = useState(false);
+  const [isBoostedLocal, setIsBoostedLocal] = useState<boolean>(() => {
+    if (!post.is_boosted) return false;
+    if (!post.boost_expires_at) return false;
+    return new Date(post.boost_expires_at) > new Date();
+  });
   const [hasPaid, setHasPaid] = useState<boolean>(() => {
     if (!firebaseUser || !post.is_cours) return false;
     return Array.isArray(post.paid_by) && post.paid_by.includes(firebaseUser.uid);
   });
   const isLiked = firebaseUser ? likes.includes(firebaseUser.uid) : false;
   const isAuthor = firebaseUser?.uid === post.author_id;
+
+  const handleBoost = () => {
+    if (!firebaseUser) { Alert.alert("Connexion requise", "Connectez-vous pour propulser votre annonce."); return; }
+    if (isBoostedLocal) { Alert.alert("Déjà propulsé", "Cette publication est déjà sponsorisée et en tête de fil."); return; }
+    Alert.alert(
+      "🚀 Propulser cette publication",
+      "Payez 500 FCFA depuis votre wallet pour mettre cette publication en tête du fil pendant 48h avec le badge Sponsorisé.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Payer 500 FCFA",
+          onPress: async () => {
+            setBoosting(true);
+            try {
+              await api.boostItem(firebaseUser.uid, post.id, "post");
+              setIsBoostedLocal(true);
+              Alert.alert("🚀 Publication propulsée !", "Votre annonce est maintenant sponsorisée et visible en tête du fil pendant 48h !");
+              onLiked?.();
+            } catch (e: any) {
+              Alert.alert("Erreur", e.message || "Impossible d'activer le boost.");
+            } finally {
+              setBoosting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handlePayCours = async () => {
     if (!firebaseUser) { Alert.alert("Connexion requise", "Connectez-vous pour accéder à ce cours."); return; }
@@ -531,7 +565,12 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
   })();
 
   return (
-    <View style={[styles.card, post.is_emergency && styles.emergencyCard]}>
+    <View style={[styles.card, post.is_emergency && styles.emergencyCard, isBoostedLocal && styles.boostedCard]}>
+      {isBoostedLocal && (
+        <View style={styles.sponsoredBadge}>
+          <Text style={styles.sponsoredText}>⚡ Sponsorisé</Text>
+        </View>
+      )}
       {post.is_emergency && (
         <View style={styles.emergencyBadge}>
           <Text style={styles.emergencyText}>🚨 URGENT</Text>
@@ -624,9 +663,19 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
         }}>
           <Text style={styles.actionIcon}>📤</Text>
         </TouchableOpacity>
-        {isAuthor && (mediaUrl) && (
-          <TouchableOpacity style={[styles.actionBtn, { marginLeft: "auto" }]} onPress={() => setFullscreenVisible(true)}>
-            <Text style={styles.actionIcon}>🗑️</Text>
+        {isAuthor && (
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.boostBtn, isBoostedLocal && styles.boostBtnActive, { marginLeft: "auto" }]}
+            onPress={handleBoost}
+            disabled={boosting}
+          >
+            {boosting ? (
+              <ActivityIndicator size="small" color="#FF6D00" />
+            ) : (
+              <Text style={[styles.boostBtnText, isBoostedLocal && styles.boostBtnTextActive]}>
+                {isBoostedLocal ? "⚡ Propulsé" : "🚀 Propulser"}
+              </Text>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -777,6 +826,13 @@ const styles = StyleSheet.create({
   coursGateSub: { fontSize: 13, color: COLORS.muted, textAlign: "center", marginBottom: 14 },
   coursPayBtn: { backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20, alignItems: "center", width: "100%" },
   coursPayBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  boostedCard: { borderLeftWidth: 4, borderLeftColor: "#FF6D00" },
+  sponsoredBadge: { backgroundColor: "#FFF3E0", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, alignSelf: "flex-start", marginBottom: 8, borderWidth: 1, borderColor: "#FFCC80" },
+  sponsoredText: { color: "#E65100", fontWeight: "700", fontSize: 12 },
+  boostBtn: { borderRadius: 16, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: "#FFF3E0", borderWidth: 1, borderColor: "#FFCC80" },
+  boostBtnActive: { backgroundColor: "#E65100", borderColor: "#E65100" },
+  boostBtnText: { color: "#E65100", fontWeight: "700", fontSize: 12 },
+  boostBtnTextActive: { color: "#fff" },
 });
 
 const cm = StyleSheet.create({

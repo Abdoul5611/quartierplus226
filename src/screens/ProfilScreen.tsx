@@ -865,6 +865,7 @@ export default function ProfilScreen() {
                     { label: "Cours payés", value: `${(adminData.total_course_payments ?? 0).toLocaleString("fr-FR")} F`, icon: "🎓", color: "#FF9800" },
                     { label: "Primes partagées", value: `${(adminData.total_primes ?? 0).toLocaleString("fr-FR")} F`, icon: "🎁", color: "#9C27B0" },
                     { label: "Total retraits", value: `${(adminData.total_withdrawals ?? 0).toLocaleString("fr-FR")} F`, icon: "📤", color: "#F44336" },
+                    { label: "Revenus Publicité (Boosts)", value: `${(adminData.total_boost_revenue ?? 0).toLocaleString("fr-FR")} F`, icon: "🚀", color: "#E65100" },
                   ].map((stat, i) => (
                     <View key={i} style={[styles.adminStatCard, { borderLeftColor: stat.color }]}>
                       <Text style={styles.adminStatIcon}>{stat.icon}</Text>

@@ -60,6 +60,8 @@ export const posts = pgTable("posts", {
   comments: jsonb("comments").default([]),
   latitude: decimal("latitude"),
   longitude: decimal("longitude"),
+  isBoosted: boolean("is_boosted").default(false),
+  boostExpiresAt: timestamp("boost_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -175,6 +177,8 @@ export const marche = pgTable("marche", {
   primePartage: boolean("prime_partage").default(false),
   primeAmount: integer("prime_amount").default(0),
   vendeurFirebaseUid: text("vendeur_firebase_uid"),
+  isBoosted: boolean("is_boosted").default(false),
+  boostExpiresAt: timestamp("boost_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

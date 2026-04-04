@@ -613,6 +613,46 @@ app.get("/api/wallet/transactions/:uid", async (req, res) => {
   }
 });
 
+// ─── Boost Annonce (500 FCFA → Admin) ─────────────────────────────────
+const BOOST_PRICE = 500;
+const BOOST_DURATION_HOURS = 48;
+
+app.post("/api/wallet/boost", async (req, res) => {
+  try {
+    const { userUid, targetId, targetType } = req.body;
+    if (!userUid || !targetId || !targetType) return res.status(400).json({ error: "Paramètres manquants" });
+    if (!["post", "marche"].includes(targetType)) return res.status(400).json({ error: "targetType invalide (post|marche)" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const balance = user.walletBalance ?? 0;
+    if (balance < BOOST_PRICE) return res.status(402).json({ error: `Solde insuffisant. Vous avez ${balance} F, le boost coûte ${BOOST_PRICE} F.` });
+
+    const boostExpiresAt = new Date(Date.now() + BOOST_DURATION_HOURS * 3600 * 1000);
+
+    await db.update(users).set({ walletBalance: balance - BOOST_PRICE } as any).where(eq(users.firebaseUid, userUid));
+
+    const [adminUser] = await db.select().from(users).where(eq(users.email, ADMIN_EMAIL));
+    if (adminUser) {
+      await db.update(users).set({ walletBalance: (adminUser.walletBalance ?? 0) + BOOST_PRICE } as any).where(eq(users.email, ADMIN_EMAIL));
+    }
+
+    if (targetType === "post") {
+      await db.update(posts).set({ isBoosted: true, boostExpiresAt } as any).where(eq(posts.id, targetId));
+    } else {
+      await db.update(marche).set({ isBoosted: true, boostExpiresAt } as any).where(eq(marche.id, targetId));
+    }
+
+    await logTransaction("boost", userUid, adminUser?.firebaseUid || ADMIN_UID, BOOST_PRICE, 0,
+      `Boost annonce (${targetType}) — propulsé 48h`, targetId);
+
+    res.json({ success: true, newBalance: balance - BOOST_PRICE, boostExpiresAt: boostExpiresAt.toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── Admin Dashboard ───────────────────────────────────────────────────
 const ADMIN_EMAIL = "quartierplusadministrateur@gmail.com";
 
@@ -628,6 +668,7 @@ app.get("/api/admin/dashboard", async (req, res) => {
     const totalPrimes = allTx.filter((tx) => tx.type === "prime_transfer").reduce((sum, tx) => sum + tx.amount, 0);
     const totalWithdrawals = allTx.filter((tx) => tx.type === "withdrawal").reduce((sum, tx) => sum + tx.amount, 0);
     const commissionsByWithdrawal = allTx.filter((tx) => tx.type === "commission").reduce((sum, tx) => sum + tx.amount, 0);
+    const totalBoostRevenue = allTx.filter((tx) => tx.type === "boost").reduce((sum, tx) => sum + tx.amount, 0);
 
     const userCount = await db.select({ count: drizzleSql<number>`count(*)` }).from(users);
     const txByType: Record<string, number> = {};
@@ -641,6 +682,7 @@ app.get("/api/admin/dashboard", async (req, res) => {
       total_course_payments: totalCoursePayments,
       total_primes: totalPrimes,
       total_withdrawals: totalWithdrawals,
+      total_boost_revenue: totalBoostRevenue,
       transaction_count: allTx.length,
       transactions_by_type: txByType,
       user_count: Number(userCount[0]?.count ?? 0),

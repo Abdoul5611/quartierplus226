@@ -23,9 +23,21 @@ interface MarcheCardProps {
   onPress?: () => void;
 }
 
+function isBoostedActive(item: MarcheItem): boolean {
+  if (!item.is_boosted) return false;
+  if (!item.boost_expires_at) return false;
+  return new Date(item.boost_expires_at) > new Date();
+}
+
 export default function MarcheCard({ item, onPress }: MarcheCardProps) {
+  const boosted = isBoostedActive(item);
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity style={[styles.card, boosted && styles.boostedCard]} onPress={onPress} activeOpacity={0.8}>
+      {boosted && (
+        <View style={styles.sponsoredBadge}>
+          <Text style={styles.sponsoredText}>⚡ Sponsorisé</Text>
+        </View>
+      )}
       {item.image_url ? (
         <Image source={{ uri: item.image_url }} style={styles.image} resizeMode="cover" />
       ) : (
@@ -75,6 +87,25 @@ const styles = StyleSheet.create({
     elevation: 3,
     width: "48%",
     marginBottom: 12,
+  },
+  boostedCard: {
+    borderWidth: 2,
+    borderColor: "#FF6D00",
+  },
+  sponsoredBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    zIndex: 10,
+    backgroundColor: "#E65100",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  sponsoredText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
   },
   image: {
     width: "100%",

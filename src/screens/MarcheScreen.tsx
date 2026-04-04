@@ -131,12 +131,19 @@ export default function MarcheScreen() {
     setModalVisible(false);
   };
 
-  const filtered = items.filter(
-    (i) =>
-      i.titre.toLowerCase().includes(search.toLowerCase()) ||
-      (i.description || "").toLowerCase().includes(search.toLowerCase()) ||
-      (i.categorie || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const now = new Date();
+  const filtered = items
+    .filter(
+      (i) =>
+        i.titre.toLowerCase().includes(search.toLowerCase()) ||
+        (i.description || "").toLowerCase().includes(search.toLowerCase()) ||
+        (i.categorie || "").toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      const aActive = a.is_boosted && a.boost_expires_at && new Date(a.boost_expires_at) > now ? 1 : 0;
+      const bActive = b.is_boosted && b.boost_expires_at && new Date(b.boost_expires_at) > now ? 1 : 0;
+      return bActive - aActive;
+    });
 
   return (
     <View style={styles.container}>
@@ -257,6 +264,41 @@ export default function MarcheScreen() {
                   <Text style={styles.primeBtnText}>🎁 Recevoir ma prime ({(selected.prime_amount || 0).toLocaleString("fr-FR")} FCFA)</Text>
                 </TouchableOpacity>
               )}
+              {selected && firebaseUser && selected.vendeur_firebase_uid === firebaseUser.uid && (() => {
+                const isBoostedNow = selected.is_boosted && selected.boost_expires_at && new Date(selected.boost_expires_at) > new Date();
+                return (
+                  <TouchableOpacity
+                    style={[styles.boostBtn, isBoostedNow && styles.boostBtnActive]}
+                    onPress={() => {
+                      if (isBoostedNow) { Alert.alert("Déjà propulsé", "Cette annonce est déjà en tête du marché pendant 48h."); return; }
+                      Alert.alert(
+                        "🚀 Propulser mon annonce",
+                        "Payez 500 FCFA depuis votre wallet pour mettre cette annonce en tête du marché pendant 48h avec le badge Sponsorisé.",
+                        [
+                          { text: "Annuler", style: "cancel" },
+                          {
+                            text: "Payer 500 FCFA",
+                            onPress: async () => {
+                              try {
+                                await api.boostItem(firebaseUser.uid, selected.id, "marche");
+                                Alert.alert("🚀 Annonce propulsée !", "Votre annonce est maintenant en tête du marché pendant 48h !");
+                                fetchItems();
+                                setSelected(null);
+                              } catch (e: any) {
+                                Alert.alert("Erreur", e.message || "Impossible d'activer le boost.");
+                              }
+                            },
+                          },
+                        ]
+                      );
+                    }}
+                  >
+                    <Text style={[styles.boostBtnText, isBoostedNow && styles.boostBtnTextActive]}>
+                      {isBoostedNow ? "⚡ Annonce propulsée" : "🚀 Propulser mon annonce — 500 FCFA / 48h"}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
               <TouchableOpacity style={styles.closeDetailBtn} onPress={() => setSelected(null)}>
                 <Text style={styles.closeDetailBtnText}>Fermer</Text>
               </TouchableOpacity>
@@ -455,4 +497,8 @@ const styles = StyleSheet.create({
   submitBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center" },
   submitBtnDisabled: { backgroundColor: "#A5D6A7" },
   submitBtnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  boostBtn: { backgroundColor: "#FFF3E0", borderWidth: 1.5, borderColor: "#FF6D00", borderRadius: 14, paddingVertical: 13, alignItems: "center", marginBottom: 10 },
+  boostBtnActive: { backgroundColor: "#E65100", borderColor: "#E65100" },
+  boostBtnText: { color: "#E65100", fontWeight: "700", fontSize: 15 },
+  boostBtnTextActive: { color: "#fff" },
 });

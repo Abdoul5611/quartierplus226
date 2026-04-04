@@ -58,6 +58,12 @@ export default function ProfilScreen() {
   const [withdrawModal, setWithdrawModal] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
+  const [adminModal, setAdminModal] = useState(false);
+  const [adminData, setAdminData] = useState<any>(null);
+  const [adminLoading, setAdminLoading] = useState(false);
+
+  const ADMIN_EMAIL = "quartierplusadministrateur@gmail.com";
+  const isAdmin = firebaseUser?.email === ADMIN_EMAIL;
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -475,6 +481,27 @@ export default function ProfilScreen() {
         <Text style={styles.logoutText}>Se déconnecter</Text>
       </TouchableOpacity>
 
+      {isAdmin && (
+        <TouchableOpacity
+          style={styles.adminBtn}
+          onPress={async () => {
+            setAdminModal(true);
+            setAdminLoading(true);
+            try {
+              const data = await api.getAdminDashboard(ADMIN_EMAIL);
+              setAdminData(data);
+            } catch (e: any) {
+              Alert.alert("Erreur", e.message || "Impossible de charger le tableau de bord.");
+            } finally {
+              setAdminLoading(false);
+            }
+          }}
+        >
+          <Text style={styles.adminBtnIcon}>👑</Text>
+          <Text style={styles.adminBtnText}>Tableau de Bord Admin</Text>
+        </TouchableOpacity>
+      )}
+
       {/* ─── Mes Publications ─── */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Mes publications ({myPosts.length})</Text>
@@ -814,6 +841,73 @@ export default function ProfilScreen() {
         </View>
       </Modal>
 
+      {/* ─── Modal Admin Dashboard ─── */}
+      <Modal visible={adminModal} animationType="slide" onRequestClose={() => setAdminModal(false)}>
+        <View style={styles.fullModalContainer}>
+          <View style={styles.fullModalHeader}>
+            <TouchableOpacity onPress={() => setAdminModal(false)} style={styles.fullModalBack}>
+              <Text style={styles.fullModalBackText}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.fullModalTitle}>👑 Dashboard Admin</Text>
+          </View>
+          <ScrollView contentContainerStyle={styles.fullModalContent}>
+            {adminLoading ? (
+              <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+            ) : adminData ? (
+              <>
+                <Text style={styles.adminDashTitle}>Tableau de bord · QuartierPlus</Text>
+                <Text style={styles.adminDashSub}>{adminData.user_count} utilisateurs inscrits · {adminData.transaction_count} transactions</Text>
+
+                <View style={styles.adminStatsGrid}>
+                  {[
+                    { label: "Commissions totales", value: `${(adminData.total_commissions ?? 0).toLocaleString("fr-FR")} F`, icon: "💰", color: "#4CAF50" },
+                    { label: "Comm. sur retraits", value: `${(adminData.commissions_by_withdrawal ?? 0).toLocaleString("fr-FR")} F`, icon: "🏦", color: "#2196F3" },
+                    { label: "Cours payés", value: `${(adminData.total_course_payments ?? 0).toLocaleString("fr-FR")} F`, icon: "🎓", color: "#FF9800" },
+                    { label: "Primes partagées", value: `${(adminData.total_primes ?? 0).toLocaleString("fr-FR")} F`, icon: "🎁", color: "#9C27B0" },
+                    { label: "Total retraits", value: `${(adminData.total_withdrawals ?? 0).toLocaleString("fr-FR")} F`, icon: "📤", color: "#F44336" },
+                  ].map((stat, i) => (
+                    <View key={i} style={[styles.adminStatCard, { borderLeftColor: stat.color }]}>
+                      <Text style={styles.adminStatIcon}>{stat.icon}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.adminStatValue}>{stat.value}</Text>
+                        <Text style={styles.adminStatLabel}>{stat.label}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                <Text style={styles.adminSectionTitle}>Transactions récentes</Text>
+                {(adminData.recent_transactions ?? []).slice(0, 30).map((tx: Transaction) => {
+                  const typeLabel: Record<string, string> = {
+                    course_payment: "Cours payé",
+                    prime_transfer: "Prime partage",
+                    withdrawal: "Retrait",
+                    commission: "Commission admin",
+                  };
+                  return (
+                    <View key={tx.id} style={styles.adminTxRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.adminTxType}>{typeLabel[tx.type] || tx.type}</Text>
+                        <Text style={styles.adminTxDesc} numberOfLines={1}>{tx.description || ""}</Text>
+                        <Text style={styles.adminTxDate}>{new Date(tx.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}</Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={styles.adminTxAmount}>{tx.amount.toLocaleString("fr-FR")} F</Text>
+                        {(tx.commission ?? 0) > 0 && (
+                          <Text style={styles.adminTxComm}>+{(tx.commission ?? 0).toLocaleString("fr-FR")} F comm.</Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+              </>
+            ) : (
+              <Text style={{ textAlign: "center", color: COLORS.muted, marginTop: 40 }}>Aucune donnée disponible</Text>
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
+
       {/* ─── Modal Retrait ─── */}
       <Modal visible={withdrawModal} animationType="fade" transparent onRequestClose={() => setWithdrawModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.confirmOverlay}>
@@ -1023,6 +1117,23 @@ const styles = StyleSheet.create({
   faqA: { fontSize: 13, color: COLORS.muted, lineHeight: 20 },
   deleteTitle: { fontSize: 20, fontWeight: "800", color: COLORS.danger, textAlign: "center", marginBottom: 12 },
   deleteSub: { fontSize: 14, color: COLORS.muted, textAlign: "center", marginBottom: 24, lineHeight: 22 },
+  adminBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginHorizontal: 16, marginBottom: 8, padding: 16, backgroundColor: "#1A237E", borderRadius: 14, gap: 10 },
+  adminBtnIcon: { fontSize: 20 },
+  adminBtnText: { fontWeight: "700", color: "#fff", fontSize: 15 },
+  adminDashTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text, marginBottom: 4 },
+  adminDashSub: { fontSize: 13, color: COLORS.muted, marginBottom: 20 },
+  adminStatsGrid: { gap: 10, marginBottom: 24 },
+  adminStatCard: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.card, borderRadius: 14, padding: 16, gap: 14, borderLeftWidth: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+  adminStatIcon: { fontSize: 28 },
+  adminStatValue: { fontSize: 18, fontWeight: "800", color: COLORS.text },
+  adminStatLabel: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  adminSectionTitle: { fontSize: 16, fontWeight: "800", color: COLORS.text, marginBottom: 12 },
+  adminTxRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: COLORS.card, borderRadius: 12, padding: 14, marginBottom: 8 },
+  adminTxType: { fontSize: 13, fontWeight: "700", color: COLORS.text },
+  adminTxDesc: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  adminTxDate: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  adminTxAmount: { fontSize: 15, fontWeight: "800", color: COLORS.text },
+  adminTxComm: { fontSize: 11, color: "#2E7D32", fontWeight: "700", marginTop: 2 },
 });
 
 function getCatColor(cat: string) {

@@ -165,4 +165,17 @@ export const api = {
 
   getTransactions: (uid: string) =>
     fetchAPI<Transaction[]>(`/api/wallet/transactions/${uid}`),
+
+  getAdminDashboard: (email: string) =>
+    fetchAPI<{
+      total_commissions: number;
+      commissions_by_withdrawal: number;
+      total_course_payments: number;
+      total_primes: number;
+      total_withdrawals: number;
+      transaction_count: number;
+      transactions_by_type: Record<string, number>;
+      user_count: number;
+      recent_transactions: Transaction[];
+    }>(`/api/admin/dashboard?email=${encodeURIComponent(email)}`),
 };

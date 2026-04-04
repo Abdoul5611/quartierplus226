@@ -190,6 +190,8 @@ export default function AccueilScreen() {
     setPollMode(false);
     setPollQuestion("");
     setPollChoices(["Oui", "Non"]);
+    setCoursMode(false);
+    setCoursPrice("");
   };
 
   const filteredPosts = filter === "tous"
@@ -348,16 +350,43 @@ export default function AccueilScreen() {
                     <Text style={styles.optionIcon}>🚨</Text>
                     <Text style={[styles.optionLabel, isEmergency && { color: COLORS.emergency }]}>Urgent</Text>
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.optionBtn, coursMode && { borderColor: "#F57F17", backgroundColor: "#FFF9C4" }]}
+                    onPress={() => { setCoursMode(!coursMode); setCoursPrice(""); }}
+                  >
+                    <Text style={styles.optionIcon}>🎓</Text>
+                    <Text style={[styles.optionLabel, coursMode && { color: "#F57F17" }]}>Cours</Text>
+                  </TouchableOpacity>
                 </>
               )}
               <TouchableOpacity
                 style={[styles.optionBtn, pollMode && { borderColor: "#2196F3", backgroundColor: "#E3F2FD" }]}
-                onPress={() => { setPollMode(!pollMode); setSelectedMedia(null); }}
+                onPress={() => { setPollMode(!pollMode); setSelectedMedia(null); setCoursMode(false); }}
               >
                 <Text style={styles.optionIcon}>📊</Text>
                 <Text style={[styles.optionLabel, pollMode && { color: "#1565C0" }]}>Sondage</Text>
               </TouchableOpacity>
             </View>
+
+            {coursMode && !pollMode && (
+              <View style={styles.coursBox}>
+                <Text style={styles.coursBoxTitle}>🎓 Mode Cours payant</Text>
+                <Text style={styles.coursBoxSub}>Les voisins devront payer pour accéder au contenu média de ce post</Text>
+                <TextInput
+                  style={styles.coursInput}
+                  value={coursPrice}
+                  onChangeText={setCoursPrice}
+                  keyboardType="numeric"
+                  placeholder="Prix du cours (FCFA)"
+                  placeholderTextColor={COLORS.muted}
+                />
+                {coursPrice ? (
+                  <Text style={styles.coursNote}>
+                    Les élèves paieront {parseInt(coursPrice || "0").toLocaleString("fr-FR")} FCFA depuis leur wallet
+                  </Text>
+                ) : null}
+              </View>
+            )}
 
             {selectedMedia && !pollMode && (
               <View style={styles.mediaPreviewContainer}>
@@ -479,4 +508,9 @@ const styles = StyleSheet.create({
   pollChoiceInput: { flex: 1, backgroundColor: "#fff", borderRadius: 10, padding: 9, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: "#BBDEFB" },
   addChoiceBtn: { alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#BBDEFB", borderRadius: 8, marginTop: 4 },
   addChoiceBtnText: { color: "#1565C0", fontWeight: "700", fontSize: 13 },
+  coursBox: { backgroundColor: "#FFF9C4", borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: "#F9A825" },
+  coursBoxTitle: { fontSize: 14, fontWeight: "800", color: "#F57F17", marginBottom: 4 },
+  coursBoxSub: { fontSize: 12, color: "#795548", marginBottom: 10 },
+  coursInput: { backgroundColor: "#fff", borderRadius: 10, padding: 10, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: "#F9A825" },
+  coursNote: { fontSize: 12, color: "#2E7D32", fontWeight: "600", marginTop: 6 },
 });

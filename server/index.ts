@@ -613,6 +613,44 @@ app.get("/api/wallet/transactions/:uid", async (req, res) => {
   }
 });
 
+// ─── Admin Dashboard ───────────────────────────────────────────────────
+const ADMIN_EMAIL = "quartierplusadministrateur@gmail.com";
+
+app.get("/api/admin/dashboard", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (email !== ADMIN_EMAIL) return res.status(403).json({ error: "Accès refusé" });
+
+    const allTx = await db.select().from(transactions).orderBy(desc(transactions.createdAt)).limit(200);
+
+    const totalCommissions = allTx.reduce((sum, tx) => sum + (tx.commission ?? 0), 0);
+    const totalCoursePayments = allTx.filter((tx) => tx.type === "course_payment").reduce((sum, tx) => sum + tx.amount, 0);
+    const totalPrimes = allTx.filter((tx) => tx.type === "prime_transfer").reduce((sum, tx) => sum + tx.amount, 0);
+    const totalWithdrawals = allTx.filter((tx) => tx.type === "withdrawal").reduce((sum, tx) => sum + tx.amount, 0);
+    const commissionsByWithdrawal = allTx.filter((tx) => tx.type === "commission").reduce((sum, tx) => sum + tx.amount, 0);
+
+    const userCount = await db.select({ count: drizzleSql<number>`count(*)` }).from(users);
+    const txByType: Record<string, number> = {};
+    for (const tx of allTx) {
+      txByType[tx.type] = (txByType[tx.type] || 0) + 1;
+    }
+
+    res.json({
+      total_commissions: totalCommissions,
+      commissions_by_withdrawal: commissionsByWithdrawal,
+      total_course_payments: totalCoursePayments,
+      total_primes: totalPrimes,
+      total_withdrawals: totalWithdrawals,
+      transaction_count: allTx.length,
+      transactions_by_type: txByType,
+      user_count: Number(userCount[0]?.count ?? 0),
+      recent_transactions: toSnake(allTx.slice(0, 50)),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // Upload ───────────────────────────────────────────────────────────
 app.post("/api/upload/image", async (req, res) => {
   try {

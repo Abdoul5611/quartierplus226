@@ -1,7 +1,7 @@
 import express from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { db } from "../db";
-import { users, posts, marche, publications, messages, votes, transactions } from "../db/schema";
+import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 
@@ -827,6 +827,148 @@ app.post("/api/wallet/boost", async (req, res) => {
     res.json({ success: true, newBalance: balance - BOOST_PRICE, boostExpiresAt: boostExpiresAt.toISOString() });
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Vidéos Récompensées (Rewarded Ads) ──────────────────────────────
+const POINTS_PER_VIDEO = 100;
+const MAX_DAILY_VIDEOS = 10;
+const MIN_SECS_BETWEEN_VIEWS = 30;
+const MIN_WITHDRAWAL_POINTS = 5000;
+const POINTS_TO_FCFA = 0.25; // 1000 pts = 250 FCFA
+
+app.post("/api/rewards/video-complete", async (req, res) => {
+  try {
+    const { userUid } = req.body;
+    if (!userUid) return res.status(400).json({ error: "userUid requis" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.isBanned) return res.status(403).json({ error: "Compte bloqué pour activité suspecte. Contactez le support." });
+
+    const since24h = new Date(Date.now() - 24 * 3600 * 1000);
+    const todayViews = await db.select().from(videoViews)
+      .where(drizzleSql`${videoViews.userUid} = ${userUid} AND ${videoViews.viewedAt} > ${since24h}`);
+
+    if (todayViews.length >= MAX_DAILY_VIDEOS) {
+      return res.status(429).json({ error: `Limite de ${MAX_DAILY_VIDEOS} vidéos par 24h atteinte. Revenez demain !`, todayViews: todayViews.length });
+    }
+
+    if (todayViews.length > 0) {
+      const lastView = todayViews[todayViews.length - 1];
+      const secsSinceLast = (Date.now() - new Date(lastView.viewedAt!).getTime()) / 1000;
+      if (secsSinceLast < MIN_SECS_BETWEEN_VIEWS) {
+        if (todayViews.length >= 3) {
+          await db.update(users).set({ isBanned: true } as any).where(eq(users.firebaseUid, userUid));
+          return res.status(403).json({ error: "Activité suspecte détectée. Compte bloqué." });
+        }
+        return res.status(429).json({ error: `Attendez encore ${Math.ceil(MIN_SECS_BETWEEN_VIEWS - secsSinceLast)} secondes avant la prochaine vidéo.` });
+      }
+    }
+
+    await db.insert(videoViews).values({ userUid, pointsEarned: POINTS_PER_VIDEO } as any);
+    const newPoints = (user.points ?? 0) + POINTS_PER_VIDEO;
+    await db.update(users).set({ points: newPoints } as any).where(eq(users.firebaseUid, userUid));
+    await logTransaction("video_reward", "admob", userUid, POINTS_PER_VIDEO, 0, `Vidéo récompensée #${todayViews.length + 1}`);
+
+    const freshViews = await db.select().from(videoViews)
+      .where(drizzleSql`${videoViews.userUid} = ${userUid} AND ${videoViews.viewedAt} > ${since24h}`);
+
+    res.json({
+      success: true,
+      pointsEarned: POINTS_PER_VIDEO,
+      totalPoints: newPoints,
+      todayViews: freshViews.length,
+      fcfaEquivalent: Math.floor(newPoints * POINTS_TO_FCFA),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Erreur serveur" });
+  }
+});
+
+app.get("/api/rewards/status/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, uid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const since24h = new Date(Date.now() - 24 * 3600 * 1000);
+    const todayViews = await db.select().from(videoViews)
+      .where(drizzleSql`${videoViews.userUid} = ${uid} AND ${videoViews.viewedAt} > ${since24h}`);
+
+    const totalPoints = user.points ?? 0;
+    res.json({
+      totalPoints,
+      todayViews: todayViews.length,
+      maxDaily: MAX_DAILY_VIDEOS,
+      fcfaEquivalent: Math.floor(totalPoints * POINTS_TO_FCFA),
+      canWithdraw: totalPoints >= MIN_WITHDRAWAL_POINTS,
+      minWithdrawalPoints: MIN_WITHDRAWAL_POINTS,
+      isBanned: user.isBanned ?? false,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Erreur serveur" });
+  }
+});
+
+app.post("/api/rewards/withdraw", async (req, res) => {
+  try {
+    const { userUid, phoneNumber, provider } = req.body;
+    if (!userUid || !phoneNumber || !provider) return res.status(400).json({ error: "Paramètres manquants" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.isBanned) return res.status(403).json({ error: "Compte bloqué." });
+
+    const totalPoints = user.points ?? 0;
+    if (totalPoints < MIN_WITHDRAWAL_POINTS) {
+      return res.status(402).json({ error: `Solde insuffisant. Vous avez ${totalPoints} pts, minimum requis : ${MIN_WITHDRAWAL_POINTS} pts.` });
+    }
+
+    const fcfaAmount = Math.floor(totalPoints * POINTS_TO_FCFA);
+    await db.update(users).set({ points: 0 } as any).where(eq(users.firebaseUid, userUid));
+    await db.insert(walletTransactions).values({
+      userId: userUid,
+      type: "withdrawal_request",
+      amount: fcfaAmount,
+      description: `Retrait points: ${totalPoints} pts → ${fcfaAmount} FCFA`,
+      mobileMoney: phoneNumber,
+      mobileMoneyProvider: provider,
+      status: "pending",
+    } as any);
+    await logTransaction("withdrawal_request", userUid, "admin", fcfaAmount, 0,
+      `RETRAIT ADMIN: ${totalPoints} pts = ${fcfaAmount} FCFA → ${provider} ${phoneNumber}`);
+
+    console.log(`\n🔔 ALERTE RETRAIT — À traiter par l'admin (${ADMIN_EMAILS[0]})`);
+    console.log(`   Utilisateur : ${user.email || user.displayName || userUid}`);
+    console.log(`   Montant : ${fcfaAmount} FCFA (${totalPoints} pts)`);
+    console.log(`   ${provider.toUpperCase()} : ${phoneNumber}\n`);
+
+    res.json({
+      success: true,
+      fcfaAmount,
+      pointsDeducted: totalPoints,
+      message: `Votre demande de ${fcfaAmount} FCFA a été enregistrée. L'administrateur vous contactera dans 24-48h sur ${provider} (${phoneNumber}).`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Erreur serveur" });
+  }
+});
+
+app.get("/api/rewards/history/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const history = await db.select().from(videoViews)
+      .where(eq(videoViews.userUid, uid))
+      .orderBy(desc(videoViews.viewedAt))
+      .limit(50);
+    const withdrawals = await db.select().from(walletTransactions)
+      .where(drizzleSql`${walletTransactions.userId} = ${uid} AND ${walletTransactions.type} = 'withdrawal_request'`)
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(20);
+    res.json({ videoHistory: toSnake(history), withdrawals: toSnake(withdrawals) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Erreur serveur" });
   }
 });
 

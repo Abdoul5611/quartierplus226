@@ -199,6 +199,24 @@ export const api = {
   checkBoostPaymentStatus: (txId: string, userUid: string, targetId: string, targetType: string) =>
     fetchAPI<{ status: string; boostExpiresAt?: string }>(`/api/payment/boost/status/${txId}?userUid=${encodeURIComponent(userUid)}&targetId=${encodeURIComponent(targetId)}&targetType=${encodeURIComponent(targetType)}`),
 
+  rewardVideoComplete: (userUid: string) =>
+    fetchAPI<{ success: boolean; pointsEarned: number; totalPoints: number; todayViews: number; fcfaEquivalent: number }>("/api/rewards/video-complete", {
+      method: "POST",
+      body: JSON.stringify({ userUid }),
+    }),
+
+  getRewardStatus: (uid: string) =>
+    fetchAPI<{ totalPoints: number; todayViews: number; maxDaily: number; fcfaEquivalent: number; canWithdraw: boolean; minWithdrawalPoints: number; isBanned: boolean }>(`/api/rewards/status/${uid}`),
+
+  requestWithdrawal: (data: { userUid: string; phoneNumber: string; provider: string }) =>
+    fetchAPI<{ success: boolean; fcfaAmount: number; pointsDeducted: number; message: string }>("/api/rewards/withdraw", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getRewardHistory: (uid: string) =>
+    fetchAPI<{ videoHistory: any[]; withdrawals: any[] }>(`/api/rewards/history/${uid}`),
+
   getAdminDashboard: (email: string) =>
     fetchAPI<{
       total_commissions: number;

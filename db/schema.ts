@@ -209,6 +209,13 @@ export const transactions = pgTable("transactions", {
 
 export type Transaction = typeof transactions.$inferSelect;
 
+export const videoViews = pgTable("video_views", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userUid: text("user_uid").notNull(),
+  pointsEarned: integer("points_earned").default(100),
+  viewedAt: timestamp("viewed_at").defaultNow(),
+});
+
 export const votes = pgTable("votes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   postId: text("post_id").notNull(),

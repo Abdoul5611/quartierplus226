@@ -18,6 +18,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { Video, ResizeMode } from "expo-av";
+import { useNavigation } from "@react-navigation/native";
 import { api, Post } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import PostCard from "../components/PostCard";
@@ -44,6 +45,7 @@ const CATEGORIES = [
 ];
 
 export default function AccueilScreen() {
+  const navigation = useNavigation();
   const { firebaseUser, dbUser } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -250,6 +252,24 @@ export default function AccueilScreen() {
               }
             />
           )}
+          ListHeaderComponent={
+            firebaseUser ? (
+              <TouchableOpacity
+                style={styles.pointsBanner}
+                onPress={() => navigation.navigate("Portefeuille" as never)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.pointsBannerIcon}>💰</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pointsBannerTitle}>
+                    {(dbUser?.points ?? 0).toLocaleString("fr-FR")} pts · {Math.floor((dbUser?.points ?? 0) * 0.25)} FCFA
+                  </Text>
+                  <Text style={styles.pointsBannerSub}>Regardez des vidéos pour gagner des points →</Text>
+                </View>
+                <Text style={styles.pointsBannerArrow}>▶</Text>
+              </TouchableOpacity>
+            ) : null
+          }
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPosts(); }} tintColor={COLORS.primary} />}
           ListEmptyComponent={
             <View style={styles.empty}>
@@ -453,6 +473,22 @@ export default function AccueilScreen() {
 }
 
 const styles = StyleSheet.create({
+  pointsBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#1B5E20",
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 4,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  pointsBannerIcon: { fontSize: 26 },
+  pointsBannerTitle: { fontSize: 14, fontWeight: "800", color: "#fff" },
+  pointsBannerSub: { fontSize: 11, color: "rgba(255,255,255,0.75)", marginTop: 2 },
+  pointsBannerArrow: { fontSize: 18, color: "rgba(255,255,255,0.8)", fontWeight: "700" },
   container: { flex: 1, backgroundColor: COLORS.bg },
   header: {
     flexDirection: "row",

@@ -6,6 +6,7 @@ import CarteScreen from "../screens/CarteScreen";
 import MarcheScreen from "../screens/MarcheScreen";
 import MessagesScreen from "../screens/MessagesScreen";
 import ProfilScreen from "../screens/ProfilScreen";
+import WalletScreen from "../screens/WalletScreen";
 
 const Tab = createBottomTabNavigator();
 
@@ -64,6 +65,15 @@ export default function TabNavigator() {
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon icon="🛒" label="Marché" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Portefeuille"
+        component={WalletScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon icon="💰" label="Wallet" focused={focused} />
           ),
         }}
       />

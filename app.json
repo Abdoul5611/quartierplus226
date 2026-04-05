@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "quartierplus",
+    "name": "QuartierPlus",
     "slug": "quartierplus",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.quartierplus2002.quartierplus"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +22,19 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.quartierplus2002.quartierplus",
+      "permissions": []
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "apiUrl": "https://9e73f362-3731-4bce-a18f-f2219406560e-00-295sq3yng9fkp.picard.replit.dev",
+      "adminEmail": "quartierplusadministrateur@gmail.com",
+      "eas": {
+        "projectId": "079118df-a585-4c10-b7c7-5862d5b0721e"
+      }
     }
   }
 }

@@ -27,6 +27,7 @@
     "expo-notifications": "~0.32.16",
     "expo-status-bar": "~3.0.9",
     "express": "^5.2.1",
+    "fedapay": "^1.2.5",
     "firebase": "^12.11.0",
     "http-proxy-middleware": "^3.0.5",
     "postgres": "^3.4.8",

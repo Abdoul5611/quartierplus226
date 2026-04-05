@@ -1,4 +1,7 @@
-const BASE_URL = typeof window !== "undefined" ? "" : "http://localhost:5000";
+import { Platform } from "react-native";
+
+const REPLIT_API_URL = "https://9e73f362-3731-4bce-a18f-f2219406560e-00-295sq3yng9fkp.picard.replit.dev";
+const BASE_URL = Platform.OS === "web" ? "" : REPLIT_API_URL;
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -169,6 +172,15 @@ export const api = {
 
   getTransactions: (uid: string) =>
     fetchAPI<Transaction[]>(`/api/wallet/transactions/${uid}`),
+
+  initiateMobileMoneyPayment: (data: { userUid: string; userEmail: string; amount: number; phoneNumber: string; countryCode: string; operatorId: string }) =>
+    fetchAPI<{ txId: string; status: string }>("/api/payment/mm/initiate", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  checkMMPaymentStatus: (txId: string, userUid: string, amount: number) =>
+    fetchAPI<{ status: string; newBalance?: number }>(`/api/payment/mm/status/${txId}?userUid=${userUid}&amount=${amount}`),
 
   boostItem: (userUid: string, targetId: string, targetType: "post" | "marche") =>
     fetchAPI<{ success: boolean; newBalance: number; boostExpiresAt: string }>("/api/wallet/boost", {

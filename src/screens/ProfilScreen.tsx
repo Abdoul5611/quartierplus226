@@ -21,6 +21,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../context/AuthContext";
 import { api, Post, Transaction } from "../services/api";
+import MobileMoneyModal from "../components/MobileMoneyModal";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -53,6 +54,7 @@ export default function ProfilScreen() {
   const [deleteModal, setDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [walletModal, setWalletModal] = useState(false);
+  const [mmModal, setMmModal] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
   const [withdrawModal, setWithdrawModal] = useState(false);
@@ -438,7 +440,7 @@ export default function ProfilScreen() {
         {[
           { label: "Points", value: dbUser?.points ?? 10, icon: "⭐", onPress: undefined },
           { label: "Mercis", value: dbUser?.merci_count ?? 0, icon: "🙏", onPress: undefined },
-          { label: "Wallet", value: `${(dbUser?.wallet_balance ?? 0).toLocaleString()} F`, icon: "💰", onPress: async () => {
+          { label: "Wallet", value: `${(dbUser?.wallet_balance ?? 0).toLocaleString()} FCFA`, icon: "💰", onPress: async () => {
             setWalletModal(true);
             setTxLoading(true);
             try {
@@ -802,10 +804,15 @@ export default function ProfilScreen() {
             <View style={styles.walletBalanceBox}>
               <Text style={styles.walletBalanceLabel}>Solde disponible</Text>
               <Text style={styles.walletBalanceAmount}>{(dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA</Text>
-              <TouchableOpacity style={styles.walletWithdrawBtn} onPress={() => { setWithdrawModal(true); }}>
-                <Text style={styles.walletWithdrawBtnText}>🏦 Faire un retrait</Text>
-              </TouchableOpacity>
-              <Text style={styles.walletCommissionNote}>Commission de 10% appliquée sur chaque retrait</Text>
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                <TouchableOpacity style={[styles.walletWithdrawBtn, { flex: 1 }]} onPress={() => setMmModal(true)}>
+                  <Text style={styles.walletWithdrawBtnText}>📱 Recharger</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.walletWithdrawBtn, { flex: 1, backgroundColor: "#F44336" }]} onPress={() => { setWithdrawModal(true); }}>
+                  <Text style={styles.walletWithdrawBtnText}>🏦 Retrait</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.walletCommissionNote}>Rechargez par Orange Money, Wave, Moov & plus · Retrait : commission 10%</Text>
             </View>
             <Text style={styles.walletTxTitle}>Historique des transactions</Text>
             {txLoading ? (
@@ -821,6 +828,8 @@ export default function ProfilScreen() {
                     prime_transfer: "Prime de partage",
                     withdrawal: "Retrait",
                     commission: "Commission admin",
+                    mobile_money_deposit: "Recharge Mobile Money",
+                    boost: "Boost publicitaire",
                   };
                   return (
                     <View key={tx.id} style={styles.txRow}>
@@ -830,7 +839,7 @@ export default function ProfilScreen() {
                         <Text style={styles.txDate}>{new Date(tx.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}</Text>
                       </View>
                       <Text style={[styles.txAmount, isDebit ? styles.txDebit : styles.txCredit]}>
-                        {isDebit ? "-" : "+"}{(tx.amount).toLocaleString("fr-FR")} F
+                        {isDebit ? "-" : "+"}{(tx.amount).toLocaleString("fr-FR")} FCFA
                       </Text>
                     </View>
                   );
@@ -860,12 +869,12 @@ export default function ProfilScreen() {
 
                 <View style={styles.adminStatsGrid}>
                   {[
-                    { label: "Commissions totales", value: `${(adminData.total_commissions ?? 0).toLocaleString("fr-FR")} F`, icon: "💰", color: "#4CAF50" },
-                    { label: "Comm. sur retraits", value: `${(adminData.commissions_by_withdrawal ?? 0).toLocaleString("fr-FR")} F`, icon: "🏦", color: "#2196F3" },
-                    { label: "Cours payés", value: `${(adminData.total_course_payments ?? 0).toLocaleString("fr-FR")} F`, icon: "🎓", color: "#FF9800" },
-                    { label: "Primes partagées", value: `${(adminData.total_primes ?? 0).toLocaleString("fr-FR")} F`, icon: "🎁", color: "#9C27B0" },
-                    { label: "Total retraits", value: `${(adminData.total_withdrawals ?? 0).toLocaleString("fr-FR")} F`, icon: "📤", color: "#F44336" },
-                    { label: "Revenus Publicité (Boosts)", value: `${(adminData.total_boost_revenue ?? 0).toLocaleString("fr-FR")} F`, icon: "🚀", color: "#E65100" },
+                    { label: "Commissions totales", value: `${(adminData.total_commissions ?? 0).toLocaleString("fr-FR")} FCFA`, icon: "💰", color: "#4CAF50" },
+                    { label: "Comm. sur retraits", value: `${(adminData.commissions_by_withdrawal ?? 0).toLocaleString("fr-FR")} FCFA`, icon: "🏦", color: "#2196F3" },
+                    { label: "Cours payés", value: `${(adminData.total_course_payments ?? 0).toLocaleString("fr-FR")} FCFA`, icon: "🎓", color: "#FF9800" },
+                    { label: "Primes partagées", value: `${(adminData.total_primes ?? 0).toLocaleString("fr-FR")} FCFA`, icon: "🎁", color: "#9C27B0" },
+                    { label: "Total retraits", value: `${(adminData.total_withdrawals ?? 0).toLocaleString("fr-FR")} FCFA`, icon: "📤", color: "#F44336" },
+                    { label: "Revenus Publicité (Boosts)", value: `${(adminData.total_boost_revenue ?? 0).toLocaleString("fr-FR")} FCFA`, icon: "🚀", color: "#E65100" },
                   ].map((stat, i) => (
                     <View key={i} style={[styles.adminStatCard, { borderLeftColor: stat.color }]}>
                       <Text style={styles.adminStatIcon}>{stat.icon}</Text>
@@ -884,6 +893,8 @@ export default function ProfilScreen() {
                     prime_transfer: "Prime partage",
                     withdrawal: "Retrait",
                     commission: "Commission admin",
+                    mobile_money_deposit: "Recharge Mobile Money",
+                    boost: "Boost publicitaire",
                   };
                   return (
                     <View key={tx.id} style={styles.adminTxRow}>
@@ -893,9 +904,9 @@ export default function ProfilScreen() {
                         <Text style={styles.adminTxDate}>{new Date(tx.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}</Text>
                       </View>
                       <View style={{ alignItems: "flex-end" }}>
-                        <Text style={styles.adminTxAmount}>{tx.amount.toLocaleString("fr-FR")} F</Text>
+                        <Text style={styles.adminTxAmount}>{tx.amount.toLocaleString("fr-FR")} FCFA</Text>
                         {(tx.commission ?? 0) > 0 && (
-                          <Text style={styles.adminTxComm}>+{(tx.commission ?? 0).toLocaleString("fr-FR")} F comm.</Text>
+                          <Text style={styles.adminTxComm}>+{(tx.commission ?? 0).toLocaleString("fr-FR")} FCFA comm.</Text>
                         )}
                       </View>
                     </View>
@@ -960,6 +971,20 @@ export default function ProfilScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* ─── Modal Mobile Money ─── */}
+      {firebaseUser && (
+        <MobileMoneyModal
+          visible={mmModal}
+          userUid={firebaseUser.uid}
+          userEmail={firebaseUser.email || ""}
+          onClose={() => setMmModal(false)}
+          onSuccess={(amount, newBalance) => {
+            setMmModal(false);
+            Alert.alert("✅ Recharge réussie !", `${amount.toLocaleString("fr-FR")} FCFA ajoutés à votre wallet.\nNouveau solde : ${newBalance.toLocaleString("fr-FR")} FCFA`);
+          }}
+        />
+      )}
     </ScrollView>
   );
 }

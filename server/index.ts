@@ -613,6 +613,93 @@ app.get("/api/wallet/transactions/:uid", async (req, res) => {
   }
 });
 
+// ─── Mobile Money (FedaPay) ─────────────────────────────────────────────
+const FEDAPAY_SECRET_KEY = process.env.FEDAPAY_API_KEY || "";
+const FEDAPAY_ENV = process.env.FEDAPAY_ENV || "sandbox";
+const FEDAPAY_BASE = FEDAPAY_ENV === "production" ? "https://api.fedapay.com/v1" : "https://sandbox.fedapay.com/v1";
+
+async function fedapayRequest(method: string, path: string, body?: Record<string, any>) {
+  const res = await fetch(`${FEDAPAY_BASE}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${FEDAPAY_SECRET_KEY}`,
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const data = await res.json() as any;
+  if (!res.ok) throw new Error(data?.message || data?.error || `FedaPay error ${res.status}`);
+  return data;
+}
+
+app.post("/api/payment/mm/initiate", async (req, res) => {
+  try {
+    if (!FEDAPAY_SECRET_KEY) return res.status(503).json({ error: "Paiement Mobile Money non configuré. Contactez l'administrateur." });
+    const { userUid, userEmail, amount, phoneNumber, countryCode, operatorId } = req.body;
+    if (!userUid || !amount || !phoneNumber || !operatorId) return res.status(400).json({ error: "Paramètres manquants" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const txData = await fedapayRequest("POST", "/transactions", {
+      description: "Recharge Wallet QuartierPlus",
+      amount,
+      currency: { iso: "XOF" },
+      callback_url: `${process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://localhost:5000"}/api/payment/mm/webhook`,
+      customer: {
+        email: userEmail || `user-${userUid}@quartierplus.app`,
+        phone_number: { number: phoneNumber, country: countryCode },
+      },
+    });
+    const fedaTxId = txData.v1?.transaction?.id || txData.transaction?.id;
+    if (!fedaTxId) throw new Error("Impossible de créer la transaction FedaPay");
+
+    await fedapayRequest("POST", `/transactions/${fedaTxId}/pay`, {
+      payment_method: operatorId,
+      customer_info: { phone_number: phoneNumber },
+    });
+
+    res.json({ txId: String(fedaTxId), status: "pending" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Erreur paiement Mobile Money" });
+  }
+});
+
+app.get("/api/payment/mm/status/:txId", async (req, res) => {
+  try {
+    if (!FEDAPAY_SECRET_KEY) return res.status(503).json({ error: "Non configuré" });
+    const { txId } = req.params;
+    const { userUid, amount } = req.query as { userUid?: string; amount?: string };
+    if (!userUid || !amount) return res.status(400).json({ error: "Paramètres manquants" });
+
+    const txData = await fedapayRequest("GET", `/transactions/${txId}`);
+    const tx = txData.v1?.transaction || txData.transaction;
+    const status: string = tx?.status || "pending";
+
+    if (status === "approved") {
+      const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+      if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+      const credited = await db.select().from(transactions).where(
+        eq(transactions.description, `MM-${txId}`)
+      );
+      if (credited.length === 0) {
+        const amountNum = parseInt(amount as string, 10);
+        await db.update(users).set({ walletBalance: (user.walletBalance ?? 0) + amountNum } as any).where(eq(users.firebaseUid, userUid));
+        await logTransaction("mobile_money_deposit", "fedapay", userUid, amountNum, 0, `MM-${txId}`, txId);
+        const [updated] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+        return res.json({ status: "approved", newBalance: updated.walletBalance ?? 0 });
+      }
+      const [updated] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+      return res.json({ status: "approved", newBalance: updated.walletBalance ?? 0 });
+    }
+
+    res.json({ status });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Erreur vérification" });
+  }
+});
+
 // ─── Boost Annonce (500 FCFA → Admin) ─────────────────────────────────
 const BOOST_PRICE = 500;
 const BOOST_DURATION_HOURS = 48;

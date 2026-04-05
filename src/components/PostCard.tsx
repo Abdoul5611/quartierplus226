@@ -512,7 +512,7 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
       [
         { text: "Annuler", style: "cancel" },
         {
-          text: `Payer ${price.toLocaleString("fr-FR")} F`,
+          text: `Payer ${price.toLocaleString("fr-FR")} FCFA`,
           onPress: async () => {
             setPayingCours(true);
             try {

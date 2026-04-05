@@ -33,6 +33,18 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - **Admin Dashboard** : `administrateurquartierplus@gmail.com`, `quartierplussanna@gmail.com`
 - **Support** : `abdoulquartierplus@gmail.com`
 
+## Google AdMob
+
+- Package : `react-native-google-mobile-ads`
+- IDs de test Google (remplacer par vrais IDs après validation) :
+  - Android App ID : `ca-app-pub-3940256099942544~3347511713`
+  - iOS App ID : `ca-app-pub-3940256099942544~1458002511`
+  - Banner ID : `TestIds.BANNER` (ca-app-pub-3940256099942544/6300978111)
+- Composant : `src/components/AdBanner.tsx` (natif) + `AdBanner.web.tsx` (stub vide pour le web)
+- Placement : Bannière fixe en bas de AccueilScreen et MarcheScreen
+- Fonctionne uniquement dans l'APK/build natif (pas dans Expo Go ni le web)
+- Plugin configuré dans `app.json` → section `plugins`
+
 ## Boost Annonce (FedaPay)
 
 - Prix : 500 FCFA / 48h

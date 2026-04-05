@@ -29,9 +29,19 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511",
+          "skAdNetworkItems": []
+        }
+      ]
+    ],
     "extra": {
-      "apiUrl": "https://9e73f362-3731-4bce-a18f-f2219406560e-00-295sq3yng9fkp.picard.replit.dev",
-      "adminEmail": "quartierplusadministrateur@gmail.com",
+      "apiUrl": "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev",
+      "adminEmail": "administrateurquartierplus@gmail.com",
       "eas": {
         "projectId": "079118df-a585-4c10-b7c7-5862d5b0721e"
       }

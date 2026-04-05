@@ -21,6 +21,7 @@ import { useNavigation } from "@react-navigation/native";
 import { api, MarcheItem } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import MarcheCard from "../components/MarcheCard";
+import AdBanner from "../components/AdBanner";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -416,6 +417,8 @@ export default function MarcheScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+
+      <AdBanner />
     </View>
   );
 }

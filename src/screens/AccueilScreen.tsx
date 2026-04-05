@@ -22,6 +22,7 @@ import { api, Post } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import PostCard from "../components/PostCard";
 import PublicProfilModal from "../components/PublicProfilModal";
+import AdBanner from "../components/AdBanner";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -445,6 +446,8 @@ export default function AccueilScreen() {
         authorAvatar={publicProfil?.authorAvatar}
         onClose={() => setPublicProfil(null)}
       />
+
+      <AdBanner />
     </View>
   );
 }

@@ -21,6 +21,7 @@ import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { Post, api } from "../services/api";
 import { useAuth } from "../context/AuthContext";
+import BoostPaymentModal from "./BoostPaymentModal";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -463,6 +464,7 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [payingCours, setPayingCours] = useState(false);
   const [boosting, setBoosting] = useState(false);
+  const [boostModalVisible, setBoostModalVisible] = useState(false);
   const [isBoostedLocal, setIsBoostedLocal] = useState<boolean>(() => {
     if (!post.is_boosted) return false;
     if (!post.boost_expires_at) return false;
@@ -478,29 +480,7 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
   const handleBoost = () => {
     if (!firebaseUser) { Alert.alert("Connexion requise", "Connectez-vous pour propulser votre annonce."); return; }
     if (isBoostedLocal) { Alert.alert("Déjà propulsé", "Cette publication est déjà sponsorisée et en tête de fil."); return; }
-    Alert.alert(
-      "🚀 Propulser cette publication",
-      "Payez 500 FCFA depuis votre wallet pour mettre cette publication en tête du fil pendant 48h avec le badge Sponsorisé.",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Payer 500 FCFA",
-          onPress: async () => {
-            setBoosting(true);
-            try {
-              await api.boostItem(firebaseUser.uid, post.id, "post");
-              setIsBoostedLocal(true);
-              Alert.alert("🚀 Publication propulsée !", "Votre annonce est maintenant sponsorisée et visible en tête du fil pendant 48h !");
-              onLiked?.();
-            } catch (e: any) {
-              Alert.alert("Erreur", e.message || "Impossible d'activer le boost.");
-            } finally {
-              setBoosting(false);
-            }
-          },
-        },
-      ]
-    );
+    setBoostModalVisible(true);
   };
 
   const handlePayCours = async () => {

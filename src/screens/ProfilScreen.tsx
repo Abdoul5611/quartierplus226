@@ -64,8 +64,8 @@ export default function ProfilScreen() {
   const [adminData, setAdminData] = useState<any>(null);
   const [adminLoading, setAdminLoading] = useState(false);
 
-  const ADMIN_EMAIL = "quartierplusadministrateur@gmail.com";
-  const isAdmin = firebaseUser?.email === ADMIN_EMAIL;
+  const ADMIN_EMAILS = ["administrateurquartierplus@gmail.com", "quartierplussanna@gmail.com"];
+  const isAdmin = !!firebaseUser?.email && ADMIN_EMAILS.includes(firebaseUser.email);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -209,11 +209,9 @@ export default function ProfilScreen() {
   };
 
   const handleContactAdmin = () => {
-    const waUrl = "https://wa.me/+2250101010101?text=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20QuartierPlus.";
-    const mailUrl = "mailto:admin@quartierplus.app?subject=Support%20QuartierPlus";
+    const mailUrl = "mailto:abdoulquartierplus@gmail.com?subject=Support%20QuartierPlus&body=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20QuartierPlus.";
     Alert.alert("Contacter l'Admin", "Choisissez votre mode de contact :", [
-      { text: "WhatsApp", onPress: () => Linking.openURL(waUrl) },
-      { text: "Email", onPress: () => Linking.openURL(mailUrl) },
+      { text: "📧 Email", onPress: () => Linking.openURL(mailUrl) },
       { text: "Annuler", style: "cancel" },
     ]);
   };
@@ -242,7 +240,7 @@ export default function ProfilScreen() {
     );
     Alert.alert("Signaler un abus", "Choisissez votre mode d'envoi :", [
       { text: "WhatsApp", onPress: () => Linking.openURL(`https://wa.me/+2250101010101?text=${waText}`) },
-      { text: "Email", onPress: () => Linking.openURL(`mailto:admin@quartierplus.app?subject=Signalement%20abus&body=${mailBody}`) },
+      { text: "Email", onPress: () => Linking.openURL(`mailto:abdoulquartierplus@gmail.com?subject=Signalement%20abus&body=${mailBody}`) },
       { text: "Annuler", style: "cancel" },
     ]);
   };
@@ -490,7 +488,7 @@ export default function ProfilScreen() {
             setAdminModal(true);
             setAdminLoading(true);
             try {
-              const data = await api.getAdminDashboard(ADMIN_EMAIL);
+              const data = await api.getAdminDashboard(firebaseUser?.email || "");
               setAdminData(data);
             } catch (e: any) {
               Alert.alert("Erreur", e.message || "Impossible de charger le tableau de bord.");

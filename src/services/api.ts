@@ -188,6 +188,15 @@ export const api = {
       body: JSON.stringify({ userUid, targetId, targetType }),
     }),
 
+  initiateBoostPayment: (data: { userUid: string; userEmail: string; phoneNumber: string; countryCode: string; operatorId: string; targetId: string; targetType: string }) =>
+    fetchAPI<{ txId: string; status: string }>("/api/payment/boost/initiate", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  checkBoostPaymentStatus: (txId: string, userUid: string, targetId: string, targetType: string) =>
+    fetchAPI<{ status: string; boostExpiresAt?: string }>(`/api/payment/boost/status/${txId}?userUid=${encodeURIComponent(userUid)}&targetId=${encodeURIComponent(targetId)}&targetType=${encodeURIComponent(targetType)}`),
+
   getAdminDashboard: (email: string) =>
     fetchAPI<{
       total_commissions: number;

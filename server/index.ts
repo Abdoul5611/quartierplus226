@@ -614,8 +614,8 @@ app.get("/api/wallet/transactions/:uid", async (req, res) => {
 });
 
 // ─── Mobile Money (FedaPay) ─────────────────────────────────────────────
-const FEDAPAY_SECRET_KEY = process.env.FEDAPAY_API_KEY || "";
-const FEDAPAY_ENV = process.env.FEDAPAY_ENV || "sandbox";
+const FEDAPAY_SECRET_KEY = process.env.FEDAPAY_SECRET_KEY || process.env.FEDAPAY_API_KEY || "";
+const FEDAPAY_ENV = process.env.FEDAPAY_ENV || "production";
 const FEDAPAY_BASE = FEDAPAY_ENV === "production" ? "https://api.fedapay.com/v1" : "https://sandbox.fedapay.com/v1";
 
 async function fedapayRequest(method: string, path: string, body?: Record<string, any>) {
@@ -700,39 +700,110 @@ app.get("/api/payment/mm/status/:txId", async (req, res) => {
   }
 });
 
-// ─── Boost Annonce (500 FCFA → Admin) ─────────────────────────────────
+// ─── Boost Annonce via FedaPay ─────────────────────────────────────────
 const BOOST_PRICE = 500;
 const BOOST_DURATION_HOURS = 48;
+
+async function applyBoostToItem(targetId: string, targetType: string) {
+  const boostExpiresAt = new Date(Date.now() + BOOST_DURATION_HOURS * 3600 * 1000);
+  if (targetType === "post") {
+    await db.update(posts).set({ isBoosted: true, boostExpiresAt } as any).where(eq(posts.id, targetId));
+  } else {
+    await db.update(marche).set({ isBoosted: true, boostExpiresAt } as any).where(eq(marche.id, targetId));
+  }
+  return boostExpiresAt;
+}
+
+async function creditAdminsForBoost(fromUid: string, targetId: string) {
+  const share = Math.floor(BOOST_PRICE / ADMIN_EMAILS.length);
+  for (const adminEmail of ADMIN_EMAILS) {
+    const [adminUser] = await db.select().from(users).where(eq(users.email, adminEmail));
+    if (adminUser) {
+      await db.update(users).set({ walletBalance: (adminUser.walletBalance ?? 0) + share } as any).where(eq(users.email, adminEmail));
+      await logTransaction("boost", fromUid, adminUser.firebaseUid || ADMIN_UID, share, 0,
+        `Boost publicitaire — propulsé 48h`, targetId);
+    }
+  }
+}
+
+app.post("/api/payment/boost/initiate", async (req, res) => {
+  try {
+    if (!FEDAPAY_SECRET_KEY) return res.status(503).json({ error: "Paiement non configuré. Contactez l'administrateur." });
+    const { userUid, userEmail, phoneNumber, countryCode, operatorId, targetId, targetType } = req.body;
+    if (!userUid || !phoneNumber || !operatorId || !targetId || !targetType) {
+      return res.status(400).json({ error: "Paramètres manquants" });
+    }
+    if (!["post", "marche"].includes(targetType)) return res.status(400).json({ error: "targetType invalide" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const txData = await fedapayRequest("POST", "/transactions", {
+      description: "Boost QuartierPlus — 48h Sponsorisé",
+      amount: BOOST_PRICE,
+      currency: { iso: "XOF" },
+      customer: {
+        email: userEmail || `user-${userUid}@quartierplus.app`,
+        phone_number: { number: phoneNumber, country: countryCode },
+      },
+    });
+    const fedaTxId = txData.v1?.transaction?.id || txData.transaction?.id;
+    if (!fedaTxId) throw new Error("Impossible de créer la transaction FedaPay");
+
+    await fedapayRequest("POST", `/transactions/${fedaTxId}/pay`, {
+      payment_method: operatorId,
+      customer_info: { phone_number: phoneNumber },
+    });
+
+    res.json({ txId: String(fedaTxId), status: "pending" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Erreur paiement Boost" });
+  }
+});
+
+app.get("/api/payment/boost/status/:txId", async (req, res) => {
+  try {
+    if (!FEDAPAY_SECRET_KEY) return res.status(503).json({ error: "Non configuré" });
+    const { txId } = req.params;
+    const { userUid, targetId, targetType } = req.query as { userUid?: string; targetId?: string; targetType?: string };
+    if (!userUid || !targetId || !targetType) return res.status(400).json({ error: "Paramètres manquants" });
+
+    const txData = await fedapayRequest("GET", `/transactions/${txId}`);
+    const tx = txData.v1?.transaction || txData.transaction;
+    const status: string = tx?.status || "pending";
+
+    if (status === "approved") {
+      const alreadyBoosted = await db.select().from(transactions).where(eq(transactions.description, `BOOST-${txId}`));
+      if (alreadyBoosted.length === 0) {
+        const boostExpiresAt = await applyBoostToItem(targetId, targetType);
+        await creditAdminsForBoost(userUid, targetId);
+        await logTransaction("boost", userUid, ADMIN_UID, BOOST_PRICE, 0, `BOOST-${txId}`, targetId);
+        return res.json({ status: "approved", boostExpiresAt: boostExpiresAt.toISOString() });
+      }
+      return res.json({ status: "approved" });
+    }
+
+    res.json({ status });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Erreur vérification" });
+  }
+});
 
 app.post("/api/wallet/boost", async (req, res) => {
   try {
     const { userUid, targetId, targetType } = req.body;
     if (!userUid || !targetId || !targetType) return res.status(400).json({ error: "Paramètres manquants" });
-    if (!["post", "marche"].includes(targetType)) return res.status(400).json({ error: "targetType invalide (post|marche)" });
+    if (!["post", "marche"].includes(targetType)) return res.status(400).json({ error: "targetType invalide" });
 
     const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid));
     if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
 
     const balance = user.walletBalance ?? 0;
-    if (balance < BOOST_PRICE) return res.status(402).json({ error: `Solde insuffisant. Vous avez ${balance} F, le boost coûte ${BOOST_PRICE} F.` });
-
-    const boostExpiresAt = new Date(Date.now() + BOOST_DURATION_HOURS * 3600 * 1000);
+    if (balance < BOOST_PRICE) return res.status(402).json({ error: `Solde insuffisant. Vous avez ${balance} FCFA, le boost coûte ${BOOST_PRICE} FCFA.` });
 
     await db.update(users).set({ walletBalance: balance - BOOST_PRICE } as any).where(eq(users.firebaseUid, userUid));
-
-    const [adminUser] = await db.select().from(users).where(eq(users.email, ADMIN_EMAIL));
-    if (adminUser) {
-      await db.update(users).set({ walletBalance: (adminUser.walletBalance ?? 0) + BOOST_PRICE } as any).where(eq(users.email, ADMIN_EMAIL));
-    }
-
-    if (targetType === "post") {
-      await db.update(posts).set({ isBoosted: true, boostExpiresAt } as any).where(eq(posts.id, targetId));
-    } else {
-      await db.update(marche).set({ isBoosted: true, boostExpiresAt } as any).where(eq(marche.id, targetId));
-    }
-
-    await logTransaction("boost", userUid, adminUser?.firebaseUid || ADMIN_UID, BOOST_PRICE, 0,
-      `Boost annonce (${targetType}) — propulsé 48h`, targetId);
+    const boostExpiresAt = await applyBoostToItem(targetId, targetType);
+    await creditAdminsForBoost(userUid, targetId);
 
     res.json({ success: true, newBalance: balance - BOOST_PRICE, boostExpiresAt: boostExpiresAt.toISOString() });
   } catch (err) {
@@ -741,12 +812,15 @@ app.post("/api/wallet/boost", async (req, res) => {
 });
 
 // ─── Admin Dashboard ───────────────────────────────────────────────────
-const ADMIN_EMAIL = "quartierplusadministrateur@gmail.com";
+const ADMIN_EMAILS = [
+  "administrateurquartierplus@gmail.com",
+  "quartierplussanna@gmail.com",
+];
 
 app.get("/api/admin/dashboard", async (req, res) => {
   try {
     const { email } = req.query as { email?: string };
-    if (email !== ADMIN_EMAIL) return res.status(403).json({ error: "Accès refusé" });
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
 
     const allTx = await db.select().from(transactions).orderBy(desc(transactions.createdAt)).limit(200);
 

@@ -45,7 +45,10 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/posts", async (_req, res) => {
   try {
     const result = await db.select().from(posts).orderBy(desc(posts.createdAt)).limit(100);
-    res.json(toSnake(result));
+    const now = new Date();
+    const boosted = result.filter(p => p.isBoosted && p.boostExpiresAt && new Date(p.boostExpiresAt) > now);
+    const normal = result.filter(p => !(p.isBoosted && p.boostExpiresAt && new Date(p.boostExpiresAt) > now));
+    res.json(toSnake([...boosted, ...normal]));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -615,8 +618,24 @@ app.get("/api/wallet/transactions/:uid", async (req, res) => {
 
 // ─── Mobile Money (FedaPay) ─────────────────────────────────────────────
 const FEDAPAY_SECRET_KEY = process.env.FEDAPAY_SECRET_KEY || process.env.FEDAPAY_API_KEY || "";
+const FEDAPAY_PUBLIC_KEY = process.env.FEDAPAY_PUBLIC_KEY || "";
+const SUPPORT_EMAIL = "abdoulquartierplus@gmail.com";
 const FEDAPAY_ENV = process.env.FEDAPAY_ENV || "production";
 const FEDAPAY_BASE = FEDAPAY_ENV === "production" ? "https://api.fedapay.com/v1" : "https://sandbox.fedapay.com/v1";
+
+const REPLIT_BASE_URL = process.env.REPLIT_DEV_DOMAIN
+  ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+  : process.env.EXPO_PUBLIC_DOMAIN
+    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
+    : "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev";
+
+app.get("/api/config/payment", (_req, res) => {
+  res.json({
+    fedapay_public_key: FEDAPAY_PUBLIC_KEY,
+    support_email: SUPPORT_EMAIL,
+    boost_price: 500,
+  });
+});
 
 async function fedapayRequest(method: string, path: string, body?: Record<string, any>) {
   const res = await fetch(`${FEDAPAY_BASE}${path}`, {
@@ -645,7 +664,7 @@ app.post("/api/payment/mm/initiate", async (req, res) => {
       description: "Recharge Wallet QuartierPlus",
       amount,
       currency: { iso: "XOF" },
-      callback_url: `${process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://localhost:5000"}/api/payment/mm/webhook`,
+      callback_url: `${REPLIT_BASE_URL}/api/payment/mm/webhook`,
       customer: {
         email: userEmail || `user-${userUid}@quartierplus.app`,
         phone_number: { number: phoneNumber, country: countryCode },

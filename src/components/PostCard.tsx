@@ -680,6 +680,20 @@ export default function PostCard({ post, onLiked, onDeleted, userLocation, onAut
           setComments(Array.isArray(updated.comments) ? updated.comments : []);
         }}
       />
+
+      <BoostPaymentModal
+        visible={boostModalVisible}
+        userUid={firebaseUser?.uid || ""}
+        userEmail={firebaseUser?.email || ""}
+        targetId={post.id}
+        targetType="post"
+        onClose={() => setBoostModalVisible(false)}
+        onBoosted={() => {
+          setIsBoostedLocal(true);
+          setBoostModalVisible(false);
+          onLiked?.();
+        }}
+      />
     </View>
   );
 }

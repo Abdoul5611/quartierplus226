@@ -1,6 +1,8 @@
 import { Platform } from "react-native";
 
-const REPLIT_API_URL = "https://9e73f362-3731-4bce-a18f-f2219406560e-00-295sq3yng9fkp.picard.replit.dev";
+const REPLIT_API_URL = process.env.EXPO_PUBLIC_DOMAIN
+  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
+  : "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev";
 const BASE_URL = Platform.OS === "web" ? "" : REPLIT_API_URL;
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {

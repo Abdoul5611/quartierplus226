@@ -1,8 +1,19 @@
 import { Platform } from "react-native";
 
-const REPLIT_API_URL = process.env.EXPO_PUBLIC_DOMAIN
-  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-  : "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev";
+const FALLBACK_URL = "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev";
+
+function buildApiUrl(): string {
+  const raw = process.env.EXPO_PUBLIC_DOMAIN || "";
+  if (!raw) return FALLBACK_URL;
+  let url = raw.trim();
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    url = url.replace(/^https?:\/\//, "");
+  }
+  url = url.replace(/:5000\/?$/, "").replace(/\/$/, "");
+  return url ? `https://${url}` : FALLBACK_URL;
+}
+
+const REPLIT_API_URL = buildApiUrl();
 const BASE_URL = Platform.OS === "web" ? "" : REPLIT_API_URL;
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {

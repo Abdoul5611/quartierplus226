@@ -98,6 +98,8 @@ export interface User {
   wallet_balance: number;
   is_premium: boolean;
   is_verified: boolean;
+  is_admin?: boolean;
+  two_factor_enabled?: boolean;
   quartier?: string;
   hometown?: string;
   work?: string;
@@ -105,6 +107,45 @@ export interface User {
   push_token?: string | null;
   notifications_enabled?: boolean;
   location_visible?: boolean;
+}
+
+export interface WithdrawalRequest {
+  id: string;
+  user_id: string;
+  user_email?: string;
+  user_name?: string;
+  amount: number;
+  description?: string;
+  mobile_money?: string;
+  mobile_money_provider?: string;
+  status: string;
+  created_at: string;
+}
+
+export interface HelpRequest {
+  id: string;
+  user_id: string;
+  user_email?: string;
+  user_name?: string;
+  subject: string;
+  message: string;
+  status: string;
+  admin_response?: string;
+  responded_at?: string;
+  created_at: string;
+}
+
+export interface MerchantValidation {
+  id: string;
+  vendeur_id?: string;
+  titre: string;
+  description?: string;
+  prix?: string;
+  image_url?: string;
+  categorie?: string;
+  disponible: boolean;
+  validation_status: string;
+  created_at: string;
 }
 
 export const api = {
@@ -241,4 +282,55 @@ export const api = {
       user_count: number;
       recent_transactions: Transaction[];
     }>(`/api/admin/dashboard?email=${encodeURIComponent(email)}`),
+
+  getAdminWithdrawals: (email: string) =>
+    fetchAPI<WithdrawalRequest[]>(`/api/admin/withdrawals?email=${encodeURIComponent(email)}`),
+
+  updateWithdrawalStatus: (id: string, status: string, email: string) =>
+    fetchAPI<WithdrawalRequest>(`/api/admin/withdrawals/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, email }),
+    }),
+
+  getAdminHelpRequests: (email: string) =>
+    fetchAPI<HelpRequest[]>(`/api/admin/help-requests?email=${encodeURIComponent(email)}`),
+
+  respondToHelpRequest: (id: string, adminResponse: string, email: string) =>
+    fetchAPI<HelpRequest>(`/api/admin/help-requests/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "closed", adminResponse, email }),
+    }),
+
+  getAdminMerchantValidations: (email: string) =>
+    fetchAPI<MerchantValidation[]>(`/api/admin/merchant-validations?email=${encodeURIComponent(email)}`),
+
+  updateMerchantValidation: (id: string, validationStatus: string, email: string) =>
+    fetchAPI<MerchantValidation>(`/api/admin/merchant-validations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ validationStatus, email }),
+    }),
+
+  submitHelpRequest: (data: { userId: string; userEmail?: string; userName?: string; subject: string; message: string }) =>
+    fetchAPI<HelpRequest>("/api/help-requests", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  setup2FA: (firebaseUid: string) =>
+    fetchAPI<{ secret: string; otpauthUrl: string }>("/api/auth/2fa/setup", {
+      method: "POST",
+      body: JSON.stringify({ firebaseUid }),
+    }),
+
+  verify2FA: (firebaseUid: string, token: string) =>
+    fetchAPI<{ success: boolean }>("/api/auth/2fa/verify", {
+      method: "POST",
+      body: JSON.stringify({ firebaseUid, token }),
+    }),
+
+  toggle2FA: (firebaseUid: string, enabled: boolean) =>
+    fetchAPI<{ success: boolean; twoFactorEnabled: boolean }>("/api/auth/2fa/toggle", {
+      method: "POST",
+      body: JSON.stringify({ firebaseUid, enabled }),
+    }),
 };

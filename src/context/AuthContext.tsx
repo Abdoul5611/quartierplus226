@@ -11,10 +11,13 @@ import { auth } from "../services/firebase";
 import { api, User } from "../services/api";
 import { registerForPushNotifications } from "../services/notifications";
 
+const ADMIN_EMAIL = "administrateurquartierplus@gmail.com";
+
 interface AuthContextType {
   firebaseUser: FirebaseUser | null;
   dbUser: User | null;
   loading: boolean;
+  isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -27,6 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [dbUser, setDbUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const isAdmin = firebaseUser?.email === ADMIN_EMAIL || dbUser?.is_admin === true;
 
   const fetchDbUser = async (uid: string) => {
     try {
@@ -79,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ firebaseUser, dbUser, loading, signIn, signUp, logout, refreshUser }}>
+    <AuthContext.Provider value={{ firebaseUser, dbUser, loading, isAdmin, signIn, signUp, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

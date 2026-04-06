@@ -21,6 +21,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../context/AuthContext";
 import { api, Post, Transaction } from "../services/api";
+import TwoFactorSetup from "../components/TwoFactorSetup";
 import MobileMoneyModal from "../components/MobileMoneyModal";
 
 const COLORS = {
@@ -34,7 +35,7 @@ const COLORS = {
 };
 
 export default function ProfilScreen() {
-  const { firebaseUser, dbUser, signIn, signUp, logout, loading, refreshUser } = useAuth();
+  const { firebaseUser, dbUser, signIn, signUp, logout, loading, refreshUser, isAdmin } = useAuth();
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -63,9 +64,7 @@ export default function ProfilScreen() {
   const [adminModal, setAdminModal] = useState(false);
   const [adminData, setAdminData] = useState<any>(null);
   const [adminLoading, setAdminLoading] = useState(false);
-
-  const ADMIN_EMAILS = ["administrateurquartierplus@gmail.com", "quartierplussanna@gmail.com"];
-  const isAdmin = !!firebaseUser?.email && ADMIN_EMAILS.includes(firebaseUser.email);
+  const [twoFAModal, setTwoFAModal] = useState(false);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -641,6 +640,17 @@ export default function ProfilScreen() {
                 <Text style={styles.settingsChevron}>›</Text>
               </TouchableOpacity>
 
+              <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); setTwoFAModal(true); }}>
+                <Text style={styles.settingsItemIcon}>🔐</Text>
+                <View style={styles.settingsItemInfo}>
+                  <Text style={styles.settingsItemLabel}>Double authentification (2FA)</Text>
+                  <Text style={styles.settingsItemSub}>
+                    {dbUser?.two_factor_enabled ? "Activée — Gérer votre 2FA" : "Désactivée — Sécuriser votre compte"}
+                  </Text>
+                </View>
+                <Text style={styles.settingsChevron}>›</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity style={styles.settingsItem} onPress={() => { setSettingsModal(false); setLogoutModal(true); }}>
                 <Text style={styles.settingsItemIcon}>🚪</Text>
                 <View style={styles.settingsItemInfo}>
@@ -972,16 +982,27 @@ export default function ProfilScreen() {
 
       {/* ─── Modal Mobile Money ─── */}
       {firebaseUser && (
-        <MobileMoneyModal
-          visible={mmModal}
-          userUid={firebaseUser.uid}
-          userEmail={firebaseUser.email || ""}
-          onClose={() => setMmModal(false)}
-          onSuccess={(amount, newBalance) => {
-            setMmModal(false);
-            Alert.alert("✅ Recharge réussie !", `${amount.toLocaleString("fr-FR")} FCFA ajoutés à votre wallet.\nNouveau solde : ${newBalance.toLocaleString("fr-FR")} FCFA`);
-          }}
-        />
+        <>
+          <MobileMoneyModal
+            visible={mmModal}
+            userUid={firebaseUser.uid}
+            userEmail={firebaseUser.email || ""}
+            onClose={() => setMmModal(false)}
+            onSuccess={(amount, newBalance) => {
+              setMmModal(false);
+              Alert.alert("✅ Recharge réussie !", `${amount.toLocaleString("fr-FR")} FCFA ajoutés à votre wallet.\nNouveau solde : ${newBalance.toLocaleString("fr-FR")} FCFA`);
+            }}
+          />
+
+          <TwoFactorSetup
+            visible={twoFAModal}
+            firebaseUid={firebaseUser.uid}
+            userEmail={firebaseUser.email || ""}
+            isAdmin={isAdmin}
+            twoFactorEnabled={dbUser?.two_factor_enabled || false}
+            onClose={() => { setTwoFAModal(false); refreshUser(); }}
+          />
+        </>
       )}
     </ScrollView>
   );

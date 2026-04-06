@@ -39,6 +39,9 @@ export const users = pgTable("users", {
   pushToken: text("push_token"),
   notificationsEnabled: boolean("notifications_enabled").default(true),
   locationVisible: boolean("location_visible").default(true),
+  isAdmin: boolean("is_admin").default(false),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  twoFactorSecret: text("two_factor_secret"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -123,7 +126,7 @@ export const walletTransactions = pgTable("wallet_transactions", {
   description: text("description"),
   relatedItemId: text("related_item_id"),
   status: text("status").default("completed"),
-  mobileMoney: text("mobile_money_number"),
+  mobileMoney: text("mobile_money"),
   mobileMoneyProvider: text("mobile_money_provider"),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -179,6 +182,20 @@ export const marche = pgTable("marche", {
   vendeurFirebaseUid: text("vendeur_firebase_uid"),
   isBoosted: boolean("is_boosted").default(false),
   boostExpiresAt: timestamp("boost_expires_at"),
+  validationStatus: text("validation_status").default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const helpRequests = pgTable("help_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  userEmail: text("user_email"),
+  userName: text("user_name"),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  status: text("status").default("open"),
+  adminResponse: text("admin_response"),
+  respondedAt: timestamp("responded_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -235,3 +252,5 @@ export type Publication = typeof publications.$inferSelect;
 export type NewPublication = typeof publications.$inferInsert;
 export type Marche = typeof marche.$inferSelect;
 export type NewMarche = typeof marche.$inferInsert;
+export type HelpRequest = typeof helpRequests.$inferSelect;
+export type NewHelpRequest = typeof helpRequests.$inferInsert;

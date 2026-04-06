@@ -7,6 +7,8 @@ import MarcheScreen from "../screens/MarcheScreen";
 import MessagesScreen from "../screens/MessagesScreen";
 import ProfilScreen from "../screens/ProfilScreen";
 import WalletScreen from "../screens/WalletScreen";
+import AdminScreen from "../screens/AdminScreen";
+import { useAuth } from "../context/AuthContext";
 
 const Tab = createBottomTabNavigator();
 
@@ -33,6 +35,8 @@ function TabIcon({ icon, label, focused }: TabIconProps) {
 }
 
 export default function TabNavigator() {
+  const { isAdmin } = useAuth();
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -95,6 +99,17 @@ export default function TabNavigator() {
           ),
         }}
       />
+      {isAdmin && (
+        <Tab.Screen
+          name="Admin"
+          component={AdminScreen}
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <TabIcon icon="🛡️" label="Admin" focused={focused} />
+            ),
+          }}
+        />
+      )}
     </Tab.Navigator>
   );
 }

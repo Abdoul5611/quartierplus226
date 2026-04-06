@@ -1,9 +1,11 @@
 import express from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { db } from "../db";
-import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions } from "../db/schema";
+import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
+import { verify as totpVerify, generate as totpGenerate, generateSecret } from "otplib";
+const ADMIN_EMAIL = "administrateurquartierplus@gmail.com";
 
 function toSnake(obj: any): any {
   if (Array.isArray(obj)) return obj.map(toSnake);
@@ -973,11 +975,197 @@ app.get("/api/rewards/history/:uid", async (req, res) => {
   }
 });
 
+// ─── Middleware Admin ───────────────────────────────────────────────────
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const email = (req.query.email || req.body?.email || req.headers["x-admin-email"]) as string;
+  if (!email || email !== ADMIN_EMAIL) {
+    return res.status(403).json({ error: "Accès réservé à l'administrateur" });
+  }
+  next();
+}
+
+// ─── 2FA Routes ────────────────────────────────────────────────────────
+app.post("/api/auth/2fa/setup", async (req, res) => {
+  try {
+    const { firebaseUid } = req.body;
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, firebaseUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const secret = generateSecret();
+    const label = encodeURIComponent(user.email || firebaseUid);
+    const otpauthUrl = `otpauth://totp/QuartierPlus:${label}?secret=${secret}&issuer=QuartierPlus&algorithm=SHA1&digits=6&period=30`;
+
+    await db.update(users)
+      .set({ twoFactorSecret: secret } as any)
+      .where(eq(users.firebaseUid, firebaseUid));
+
+    res.json({ secret, otpauthUrl });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/auth/2fa/verify", async (req, res) => {
+  try {
+    const { firebaseUid, token } = req.body;
+    if (!firebaseUid || !token) return res.status(400).json({ error: "firebaseUid et token requis" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, firebaseUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (!user.twoFactorSecret) return res.status(400).json({ error: "2FA non configuré" });
+
+    const result = await totpVerify({ token, secret: user.twoFactorSecret as string });
+    const isValid = result && typeof result === "object" ? result.valid : result;
+    if (!isValid) return res.status(401).json({ error: "Code invalide" });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/auth/2fa/toggle", async (req, res) => {
+  try {
+    const { firebaseUid, enabled } = req.body;
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, firebaseUid));
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    if (user.email === ADMIN_EMAIL && !enabled) {
+      return res.status(400).json({ error: "Le 2FA ne peut pas être désactivé pour le compte administrateur" });
+    }
+
+    await db.update(users)
+      .set({ twoFactorEnabled: enabled } as any)
+      .where(eq(users.firebaseUid, firebaseUid));
+
+    res.json({ success: true, twoFactorEnabled: enabled });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin - Demandes de retrait ────────────────────────────────────────
+app.get("/api/admin/withdrawals", requireAdmin, async (req, res) => {
+  try {
+    const withdrawals = await db.select({
+      id: walletTransactions.id,
+      userId: walletTransactions.userId,
+      amount: walletTransactions.amount,
+      description: walletTransactions.description,
+      mobileMoney: walletTransactions.mobileMoney,
+      mobileMoneyProvider: walletTransactions.mobileMoneyProvider,
+      status: walletTransactions.status,
+      createdAt: walletTransactions.createdAt,
+    })
+      .from(walletTransactions)
+      .where(eq(walletTransactions.type, "withdrawal_request"))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(100);
+
+    const enriched = await Promise.all(
+      withdrawals.map(async (w) => {
+        const [u] = await db.select({ email: users.email, displayName: users.displayName })
+          .from(users).where(eq(users.firebaseUid, w.userId || ""));
+        return { ...toSnake(w), user_email: u?.email, user_name: u?.displayName };
+      })
+    );
+    res.json(enriched);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.patch("/api/admin/withdrawals/:id", requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { status } = req.body;
+    if (!["pending", "approved", "rejected"].includes(status)) {
+      return res.status(400).json({ error: "Statut invalide" });
+    }
+    const [updated] = await db.update(walletTransactions)
+      .set({ status } as any)
+      .where(eq(walletTransactions.id, id))
+      .returning();
+    res.json(toSnake(updated));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin - Demandes d'aide ────────────────────────────────────────────
+app.get("/api/admin/help-requests", requireAdmin, async (req, res) => {
+  try {
+    const requests = await db.select().from(helpRequests)
+      .orderBy(desc(helpRequests.createdAt))
+      .limit(100);
+    res.json(toSnake(requests));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.patch("/api/admin/help-requests/:id", requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { status, adminResponse } = req.body;
+    const [updated] = await db.update(helpRequests)
+      .set({
+        status: status || "closed",
+        adminResponse: adminResponse || null,
+        respondedAt: new Date(),
+      } as any)
+      .where(eq(helpRequests.id, id))
+      .returning();
+    res.json(toSnake(updated));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/help-requests", async (req, res) => {
+  try {
+    const { userId, userEmail, userName, subject, message } = req.body;
+    if (!userId || !subject || !message) return res.status(400).json({ error: "Paramètres manquants" });
+    const [request] = await db.insert(helpRequests).values({
+      userId, userEmail, userName, subject, message, status: "open",
+    } as any).returning();
+    res.json(toSnake(request));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin - Validations annonces commerçants ───────────────────────────
+app.get("/api/admin/merchant-validations", requireAdmin, async (req, res) => {
+  try {
+    const items = await db.select().from(marche)
+      .orderBy(desc(marche.createdAt))
+      .limit(100);
+    res.json(toSnake(items));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.patch("/api/admin/merchant-validations/:id", requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { validationStatus } = req.body;
+    if (!["pending", "approved", "rejected"].includes(validationStatus)) {
+      return res.status(400).json({ error: "Statut invalide" });
+    }
+    const [updated] = await db.update(marche)
+      .set({ validationStatus } as any)
+      .where(eq(marche.id, id))
+      .returning();
+    res.json(toSnake(updated));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── Admin Dashboard ───────────────────────────────────────────────────
-const ADMIN_EMAILS = [
-  "administrateurquartierplus@gmail.com",
-  "quartierplussanna@gmail.com",
-];
+const ADMIN_EMAILS = [ADMIN_EMAIL];
 
 app.get("/api/admin/dashboard", async (req, res) => {
   try {

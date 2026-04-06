@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { RewardedAd, RewardedAdEventType, TestIds } from "react-native-google-mobile-ads";
+import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from "react-native-google-mobile-ads";
 import { api } from "../services/api";
 
 const AD_UNIT_ID = TestIds.REWARDED;
@@ -69,7 +69,7 @@ export default function RewardedVideoButton({ todayViews, maxDaily, userUid, onP
       adRef.current = null;
     });
 
-    const unsubError = ad.addAdEventListener(RewardedAdEventType.ERROR as any, () => {
+    const unsubError = ad.addAdEventListener(AdEventType.ERROR, () => {
       setStatus("idle");
       Alert.alert("Pas de publicité disponible", "Réessayez dans quelques instants.");
       unsubLoaded();

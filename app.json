@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "QuartierPlus",
+    "name": "Quartier Plus",
     "slug": "quartierplus",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -44,7 +44,6 @@
       ]
     ],
     "extra": {
-      "apiUrl": "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev",
       "adminEmail": "administrateurquartierplus@gmail.com",
       "eas": {
         "projectId": "079118df-a585-4c10-b7c7-5862d5b0721e"

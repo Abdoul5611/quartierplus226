@@ -1,15 +1,14 @@
 import { Platform } from "react-native";
-import Constants from "expo-constants";
 
-const PROD_URL = "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev";
+const PROD_URL = "https://59d71096-599a-4b46-9f60-6f5ff458e92e-00-yjuayaaw6lwg.kirk.replit.dev";
 
 function buildApiUrl(): string {
-  const fromConfig = Constants.expoConfig?.extra?.apiUrl as string | undefined;
-  if (fromConfig) return fromConfig.replace(/\/$/, "");
   const raw = process.env.EXPO_PUBLIC_DOMAIN || "";
-  if (!raw) return PROD_URL;
-  let url = raw.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
-  return url ? `https://${url}` : PROD_URL;
+  if (raw) {
+    let url = raw.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
+    return url ? `https://${url}` : PROD_URL;
+  }
+  return PROD_URL;
 }
 
 const REPLIT_API_URL = buildApiUrl();

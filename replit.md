@@ -1,4 +1,4 @@
-# QuartierPlus
+# Quartier Plus
 
 Application communautaire de quartier construite avec Expo (React Native) et un serveur Express proxy.
 
@@ -54,15 +54,14 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - Endpoint : `POST /api/payment/boost/initiate` + `GET /api/payment/boost/status/:txId`
 - Config publique disponible : `GET /api/config/payment`
 
-## Corrections appliquées
+## Corrections appliquées (nouveau compte Replit)
 
-- **start.sh** : Utilise `./node_modules/.bin/expo` au lieu de `npx expo` pour éviter l'installation de la mauvaise version
-- **db/schema.ts** : Ajout de la colonne `quartier` dans la table `users`
-- **server/index.ts** : Ajout de la fonction `toSnake()` pour convertir les réponses Drizzle (camelCase) en snake_case
-- **PostCard.tsx** : `BoostPaymentModal` branché sur le bouton Propulser + `onBoosted` rafraîchit le fil
-- **server/index.ts** : Posts boostés (actifs) triés en tête du fil dans `/api/posts`
-- **api.ts** : URL API lue depuis `EXPO_PUBLIC_DOMAIN` (Secret) pour l'APK, fallback sur le domaine Replit courant
-- **server/index.ts** : `REPLIT_BASE_URL` centralisé, callback FedaPay corrigé (plus de localhost)
+- **app.json** : Nom corrigé → "Quartier Plus", URL hardcodée de l'ancien compte supprimée
+- **api.ts** : PROD_URL mis à jour vers le nouveau domaine Replit, simplifié sans expo-constants
+- **start.sh** : Utilise `npx expo start` (plus `./node_modules/.bin/expo` qui échouait)
+- **metro.config.js** : Resolver personnalisé pour `expo-modules-core` (résolution web)
+- **eas.json** : Ajout de `EXPO_PUBLIC_DOMAIN` + `buildType: apk` pour preview/production
+- **Domaine actuel** : `59d71096-599a-4b46-9f60-6f5ff458e92e-00-yjuayaaw6lwg.kirk.replit.dev`
 
 ## Tables de base de données
 

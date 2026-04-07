@@ -111,37 +111,19 @@ export default function CarteScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.mapPlaceholder}>
-          {Platform.OS === "web" ? (
-            <View style={styles.mapWebContainer}>
-              <Text style={styles.mapIcon}>🗺️</Text>
-              <Text style={styles.mapTitle}>Carte interactive</Text>
-              {location ? (
-                <>
-                  <Text style={styles.mapCoords}>
-                    Lat: {location.coords.latitude.toFixed(5)}
-                  </Text>
-                  <Text style={styles.mapCoords}>
-                    Lng: {location.coords.longitude.toFixed(5)}
-                  </Text>
-                  <View style={styles.mapAccuracyBadge}>
-                    <Text style={styles.mapAccuracyText}>
-                      ✓ GPS actif · Précision {Math.round(location.coords.accuracy || 0)}m
-                    </Text>
-                  </View>
-                </>
-              ) : (
-                <TouchableOpacity style={styles.gpsBtn} onPress={requestLocation}>
-                  <Text style={styles.gpsBtnText}>📍 Activer la géolocalisation</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            <View style={styles.mapNativeContainer}>
-              <Text style={styles.mapIcon}>🗺️</Text>
-              <Text style={styles.mapTitle}>Carte du quartier</Text>
-              <Text style={styles.mapSubtitle}>Carte disponible sur mobile</Text>
-            </View>
-          )}
+          <View style={styles.mapNativeContainer}>
+            <Text style={styles.mapIcon}>🗺️</Text>
+            <Text style={styles.mapTitle}>Carte du quartier</Text>
+            {location ? (
+              <Text style={styles.mapSubtitle}>
+                📍 {location.coords.latitude.toFixed(4)}, {location.coords.longitude.toFixed(4)}
+              </Text>
+            ) : (
+              <TouchableOpacity style={styles.gpsBtn} onPress={requestLocation}>
+                <Text style={styles.gpsBtnText}>📍 Activer la géolocalisation</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         <View style={styles.statsRow}>
@@ -231,31 +213,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#E8F5E9",
     height: 220,
   },
-  mapWebContainer: {
+  mapNativeContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#C8E6C9",
     padding: 20,
   },
-  mapNativeContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#C8E6C9",
-  },
   mapIcon: { fontSize: 48, marginBottom: 8 },
   mapTitle: { fontSize: 16, fontWeight: "700", color: COLORS.primary },
   mapSubtitle: { fontSize: 12, color: COLORS.muted, marginTop: 4 },
-  mapCoords: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
-  mapAccuracyBadge: {
-    backgroundColor: "#4CAF50",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    marginTop: 10,
-  },
-  mapAccuracyText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   gpsBtn: {
     backgroundColor: COLORS.primary,
     borderRadius: 20,

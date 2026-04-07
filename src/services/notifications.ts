@@ -1,4 +1,3 @@
-import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import { BASE_URL } from "./api";
 
@@ -13,18 +12,14 @@ Notifications.setNotificationHandler({
 });
 
 export async function registerForPushNotifications(firebaseUid: string): Promise<string | null> {
-  if (Platform.OS === "web") return null;
-
   try {
-    const { status: existing } = await Notifications.getPermissionsAsync();
-    let finalStatus = existing;
+    let permissionsResult: any = await Notifications.getPermissionsAsync();
 
-    if (existing !== "granted") {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
+    if (!permissionsResult.granted) {
+      permissionsResult = await Notifications.requestPermissionsAsync();
     }
 
-    if (finalStatus !== "granted") return null;
+    if (!permissionsResult.granted) return null;
 
     const tokenData = await Notifications.getExpoPushTokenAsync().catch(() => null);
     if (!tokenData) return null;

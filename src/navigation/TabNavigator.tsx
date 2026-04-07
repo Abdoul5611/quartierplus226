@@ -39,6 +39,7 @@ export default function TabNavigator() {
 
   return (
     <Tab.Navigator
+      id="main-tab"
       screenOptions={{
         headerShown: false,
         tabBarStyle: styles.tabBar,

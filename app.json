@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -45,7 +45,10 @@
     ],
     "extra": {
       "adminEmail": "administrateurquartierplus@gmail.com",
-      "eas": {}
-    }
+      "eas": {
+        "projectId": "7d2e7fe4-bfa5-4466-84f2-b18fdc9abeab"
+      }
+    },
+    "owner": "quartierplus2026"
   }
 }

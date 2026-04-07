@@ -17,7 +17,7 @@ import {
   SafeAreaView,
 } from "react-native";
 import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import { Post, api } from "../services/api";
 import { useAuth } from "../context/AuthContext";

@@ -1,4 +1,3 @@
-import { Platform } from "react-native";
 
 const PROD_URL = "https://59d71096-599a-4b46-9f60-6f5ff458e92e-00-yjuayaaw6lwg.kirk.replit.dev";
 
@@ -11,8 +10,7 @@ function buildApiUrl(): string {
   return PROD_URL;
 }
 
-const REPLIT_API_URL = buildApiUrl();
-export const BASE_URL = Platform.OS === "web" ? "" : REPLIT_API_URL;
+export const BASE_URL = buildApiUrl();
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {

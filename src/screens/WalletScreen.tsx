@@ -38,7 +38,7 @@ const PROVIDERS = [
 const POINTS_TO_FCFA = 0.25;
 const MIN_WITHDRAWAL = 5000;
 const MAX_DAILY = 10;
-const POINTS_PER_VIDEO = 100;
+const POINTS_PER_VIDEO = 5;
 
 interface RewardStatus {
   totalPoints: number;

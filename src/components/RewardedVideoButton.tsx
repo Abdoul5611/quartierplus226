@@ -11,7 +11,7 @@ import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from "react-nat
 import { api } from "../services/api";
 
 const AD_UNIT_ID = TestIds.REWARDED;
-const POINTS_PER_VIDEO = 100;
+const POINTS_PER_VIDEO = 5;
 
 interface Props {
   todayViews: number;

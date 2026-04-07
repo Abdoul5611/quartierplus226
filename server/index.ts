@@ -277,16 +277,29 @@ app.get("/api/users/firebase/:uid", async (req, res) => {
   }
 });
 
+const REFERRAL_BONUS_POINTS = 10;
+
 app.post("/api/users", async (req, res) => {
   try {
-    const { firebase_uid, email, display_name } = req.body;
+    const { firebase_uid, email, display_name, referral_code } = req.body;
     const existing = await db.select().from(users).where(eq(users.firebaseUid, firebase_uid));
     if (existing.length > 0) return res.json(toSnake(existing[0]));
+
+    let referrerId: string | null = null;
+    if (referral_code) {
+      const [referrer] = await db.select().from(users).where(eq(users.referralCode, referral_code));
+      if (referrer) referrerId = referrer.firebaseUid!;
+    }
+
+    const generatedCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
     const [user] = await db.insert(users).values({
       firebaseUid: firebase_uid,
       email,
       displayName: display_name,
       username: display_name?.toLowerCase().replace(/\s+/g, "_"),
+      referralCode: generatedCode,
+      referredBy: referral_code || null,
       points: 10,
       merciCount: 0,
       lendingCount: 0,
@@ -295,6 +308,16 @@ app.post("/api/users", async (req, res) => {
       isVerified: false,
       isBanned: false,
     } as any).returning();
+
+    if (referrerId) {
+      const [referrer] = await db.select().from(users).where(eq(users.firebaseUid, referrerId));
+      if (referrer) {
+        const newPoints = (referrer.points ?? 0) + REFERRAL_BONUS_POINTS;
+        await db.update(users).set({ points: newPoints } as any).where(eq(users.firebaseUid, referrerId));
+        await logTransaction("referral_bonus", "system", referrerId, REFERRAL_BONUS_POINTS, 0, `Parrainage : ${email} a rejoint via votre code`);
+      }
+    }
+
     res.json(toSnake(user));
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -834,7 +857,7 @@ app.post("/api/wallet/boost", async (req, res) => {
 });
 
 // ─── Vidéos Récompensées (Rewarded Ads) ──────────────────────────────
-const POINTS_PER_VIDEO = 100;
+const POINTS_PER_VIDEO = 5;
 const MAX_DAILY_VIDEOS = 10;
 const MIN_SECS_BETWEEN_VIEWS = 30;
 const MIN_WITHDRAWAL_POINTS = 5000;

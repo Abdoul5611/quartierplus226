@@ -19,7 +19,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, displayName: string) => Promise<void>;
+  signUp: (email: string, password: string, displayName: string, referralCode?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetchDbUser(cred.user.uid);
   };
 
-  const signUp = async (email: string, password: string, displayName: string) => {
+  const signUp = async (email: string, password: string, displayName: string, referralCode?: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(cred.user, { displayName });
     try {
@@ -68,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         firebase_uid: cred.user.uid,
         email,
         display_name: displayName,
+        ...(referralCode ? { referral_code: referralCode.trim().toUpperCase() } : {}),
       } as any);
       setDbUser(newUser);
     } catch {}

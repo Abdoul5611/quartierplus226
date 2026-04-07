@@ -61,7 +61,7 @@ export default function RewardedVideoButton({ todayViews, maxDaily, userUid, onP
       }
     });
 
-    const unsubClosed = ad.addAdEventListener(RewardedAdEventType.CLOSED, () => {
+    const unsubClosed = ad.addAdEventListener(AdEventType.CLOSED, () => {
       setStatus("idle");
       unsubLoaded();
       unsubEarned();

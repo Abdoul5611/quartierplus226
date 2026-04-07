@@ -91,7 +91,7 @@ function FullscreenMedia({
       }
       const ext = mediaType === "video" ? "mp4" : "jpg";
       const filename = `quartierplus_${Date.now()}.${ext}`;
-      const localUri = FileSystem.documentDirectory + filename;
+      const localUri = (FileSystem.documentDirectory ?? "") + filename;
 
       await FileSystem.downloadAsync(mediaUrl, localUri);
       await MediaLibrary.saveToLibraryAsync(localUri);

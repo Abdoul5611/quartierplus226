@@ -10,9 +10,12 @@ import TabNavigator from "./src/navigation/TabNavigator";
 
 export default function App() {
   useEffect(() => {
-    initMobileAds().catch((e) => {
-      console.warn("[QuartierPlus] AdMob init warning:", e?.message);
-    });
+    const timer = setTimeout(() => {
+      initMobileAds().catch((e) => {
+        console.warn("[QuartierPlus] AdMob init warning:", e?.message);
+      });
+    }, 1500);
+    return () => clearTimeout(timer);
   }, []);
 
   return (

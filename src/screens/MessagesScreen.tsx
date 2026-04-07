@@ -15,6 +15,7 @@ import {
 import { Audio } from "expo-av";
 import { useRoute } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
+import { BASE_URL } from "../services/api";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -54,7 +55,7 @@ const CHANNELS: Channel[] = [
 ];
 
 async function fetchMessages(channel: string): Promise<Message[]> {
-  const res = await fetch(`/api/messages/${channel}`);
+  const res = await fetch(`${BASE_URL}/api/messages/${channel}`);
   if (!res.ok) throw new Error("Erreur chargement messages");
   return res.json();
 }
@@ -68,7 +69,7 @@ async function postMessage(data: {
   audio_url?: string;
   message_type?: string;
 }): Promise<Message> {
-  const res = await fetch("/api/messages", {
+  const res = await fetch(`${BASE_URL}/api/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -81,7 +82,7 @@ async function postMessage(data: {
 }
 
 async function uploadAudio(base64: string): Promise<string> {
-  const res = await fetch("/api/upload/audio", {
+  const res = await fetch(`${BASE_URL}/api/upload/audio`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ base64, folder: "quartierplus/audio" }),

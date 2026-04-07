@@ -20,7 +20,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../context/AuthContext";
-import { api, Post, Transaction } from "../services/api";
+import { api, Post, Transaction, BASE_URL } from "../services/api";
 import TwoFactorSetup from "../components/TwoFactorSetup";
 import MobileMoneyModal from "../components/MobileMoneyModal";
 
@@ -40,6 +40,7 @@ export default function ProfilScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [error, setError] = useState("");
   const [logoutModal, setLogoutModal] = useState(false);
@@ -160,7 +161,7 @@ export default function ProfilScreen() {
     if (!firebaseUser) return;
     setAuthLoading(true);
     try {
-      await fetch(`/api/users/firebase/${firebaseUser.uid}`, {
+      await fetch(`${BASE_URL}/api/users/firebase/${firebaseUser.uid}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -216,12 +217,14 @@ export default function ProfilScreen() {
   };
 
   const handleInvite = async () => {
+    const code = dbUser?.referral_code || "";
     try {
       await Share.share({
         title: "QuartierPlus — Rejoignez votre quartier !",
         message:
           "🏘️ Rejoignez QuartierPlus, l'appli qui connecte les voisins !\n" +
           "Discutez, achetez, vendez et entraidez-vous avec vos voisins.\n\n" +
+          (code ? `🎁 Mon code parrainage : ${code} (+10 pts offerts à l'inscription !)\n\n` : "") +
           "👉 Téléchargez l'app : https://quartierplus.app",
       });
     } catch {}
@@ -248,7 +251,7 @@ export default function ProfilScreen() {
     if (!firebaseUser) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/users/firebase/${firebaseUser.uid}`, { method: "DELETE" });
+      const res = await fetch(`${BASE_URL}/api/users/firebase/${firebaseUser.uid}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur serveur");
       setDeleteModal(false);
       await logout();
@@ -278,7 +281,7 @@ export default function ProfilScreen() {
       if (!result.canceled && result.assets[0]?.base64) {
         setPhotoUploading(true);
         try {
-          const res = await fetch("/api/upload/profile", {
+          const res = await fetch(`${BASE_URL}/api/upload/profile`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ base64: result.assets[0].base64, user_id: firebaseUser.uid }),
@@ -306,7 +309,7 @@ export default function ProfilScreen() {
       if (authMode === "login") {
         await signIn(email.trim(), password);
       } else {
-        await signUp(email.trim(), password, displayName.trim());
+        await signUp(email.trim(), password, displayName.trim(), referralCode.trim() || undefined);
       }
     } catch (e: any) {
       const codes: Record<string, string> = {
@@ -347,10 +350,25 @@ export default function ProfilScreen() {
             </View>
 
             {authMode === "register" && (
-              <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>Prénom & Nom</Text>
-                <TextInput style={styles.input} placeholder="Ex: Marie Dupont" value={displayName} onChangeText={setDisplayName} autoCapitalize="words" placeholderTextColor={COLORS.muted} />
-              </View>
+              <>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Prénom & Nom</Text>
+                  <TextInput style={styles.input} placeholder="Ex: Marie Dupont" value={displayName} onChangeText={setDisplayName} autoCapitalize="words" placeholderTextColor={COLORS.muted} />
+                </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Code parrainage (optionnel)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ex: AB12CD"
+                    value={referralCode}
+                    onChangeText={(t) => setReferralCode(t.toUpperCase())}
+                    autoCapitalize="characters"
+                    placeholderTextColor={COLORS.muted}
+                    maxLength={8}
+                  />
+                  <Text style={{ fontSize: 11, color: COLORS.muted, marginTop: 4 }}>+10 pts offerts à votre parrain !</Text>
+                </View>
+              </>
             )}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Email</Text>
@@ -473,6 +491,20 @@ export default function ProfilScreen() {
             </View>
           </View>
         ))}
+        {dbUser?.referral_code && (
+          <TouchableOpacity
+            style={styles.referralBox}
+            onPress={handleInvite}
+            activeOpacity={0.8}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.referralLabel}>🎁 Mon code parrainage</Text>
+              <Text style={styles.referralCode}>{dbUser.referral_code}</Text>
+              <Text style={styles.referralHint}>Chaque ami inscrit avec ce code vous rapporte +10 pts</Text>
+            </View>
+            <Text style={{ fontSize: 20 }}>↗️</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <TouchableOpacity style={styles.logoutBtn} onPress={() => setLogoutModal(true)}>
@@ -1075,6 +1107,14 @@ const styles = StyleSheet.create({
   infoContent: { flex: 1 },
   infoLabel: { fontSize: 12, color: COLORS.muted, fontWeight: "600" },
   infoValue: { fontSize: 14, color: COLORS.text, fontWeight: "600", marginTop: 2 },
+  referralBox: {
+    flexDirection: "row", alignItems: "center", backgroundColor: "#E8F5E9",
+    borderRadius: 14, padding: 16, marginTop: 12,
+    borderWidth: 1.5, borderColor: "#A5D6A7",
+  },
+  referralLabel: { fontSize: 12, color: COLORS.muted, fontWeight: "600", marginBottom: 4 },
+  referralCode: { fontSize: 22, fontWeight: "900", color: COLORS.primary, letterSpacing: 3 },
+  referralHint: { fontSize: 11, color: COLORS.muted, marginTop: 4, lineHeight: 16 },
   logoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", margin: 16, padding: 16, backgroundColor: "#FFEBEE", borderRadius: 14, gap: 10 },
   logoutIcon: { fontSize: 20 },
   logoutText: { fontWeight: "700", color: "#C62828", fontSize: 15 },

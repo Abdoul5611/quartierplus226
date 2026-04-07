@@ -1,20 +1,19 @@
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 
-const FALLBACK_URL = "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev";
+const PROD_URL = "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev";
 
 function buildApiUrl(): string {
+  const fromConfig = Constants.expoConfig?.extra?.apiUrl as string | undefined;
+  if (fromConfig) return fromConfig.replace(/\/$/, "");
   const raw = process.env.EXPO_PUBLIC_DOMAIN || "";
-  if (!raw) return FALLBACK_URL;
-  let url = raw.trim();
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    url = url.replace(/^https?:\/\//, "");
-  }
-  url = url.replace(/:5000\/?$/, "").replace(/\/$/, "");
-  return url ? `https://${url}` : FALLBACK_URL;
+  if (!raw) return PROD_URL;
+  let url = raw.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
+  return url ? `https://${url}` : PROD_URL;
 }
 
 const REPLIT_API_URL = buildApiUrl();
-const BASE_URL = Platform.OS === "web" ? "" : REPLIT_API_URL;
+export const BASE_URL = Platform.OS === "web" ? "" : REPLIT_API_URL;
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -107,6 +106,9 @@ export interface User {
   push_token?: string | null;
   notifications_enabled?: boolean;
   location_visible?: boolean;
+  referral_code?: string | null;
+  referred_by?: string | null;
+  is_banned?: boolean;
 }
 
 export interface WithdrawalRequest {

@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.quartierplus2026.quartierplus"
+      "bundleIdentifier": "com.quartierplus2002.quartierplus"
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +23,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.quartierplus2026.quartierplus",
+      "package": "com.quartierplus2002.quartierplus",
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
@@ -49,6 +49,6 @@
         "projectId": "7d2e7fe4-bfa5-4466-84f2-b18fdc9abeab"
       }
     },
-    "owner": "quartierplus2026"
+    "owner": "quartierplus2002"
   }
 }

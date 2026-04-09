@@ -1,11 +1,29 @@
-import React, { useState } from "react";
-import { View, StyleSheet, Platform } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, StyleSheet } from "react-native";
 import { BannerAd, BannerAdSize, TestIds } from "react-native-google-mobile-ads";
+import { adsReady } from "../utils/initMobileAds";
 
 const AD_UNIT_ID = TestIds.BANNER;
 
 export default function AdBanner() {
   const [loaded, setLoaded] = useState(false);
+  const [canRender, setCanRender] = useState(false);
+
+  useEffect(() => {
+    let attempts = 0;
+    const check = setInterval(() => {
+      attempts++;
+      if (adsReady()) {
+        setCanRender(true);
+        clearInterval(check);
+      } else if (attempts >= 10) {
+        clearInterval(check);
+      }
+    }, 300);
+    return () => clearInterval(check);
+  }, []);
+
+  if (!canRender) return null;
 
   return (
     <View style={[styles.container, loaded && styles.containerLoaded]}>

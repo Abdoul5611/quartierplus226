@@ -21,6 +21,7 @@
     "drizzle-orm": "^0.45.2",
     "expo": "~54.0.33",
     "expo-av": "^16.0.8",
+    "expo-build-properties": "~1.0.10",
     "expo-file-system": "~19.0.21",
     "expo-image-picker": "~17.0.10",
     "expo-location": "~19.0.8",
@@ -37,7 +38,7 @@
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
-    "react-native-google-mobile-ads": "^16.3.2",
+    "react-native-google-mobile-ads": "^16.3.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
     "ts-node": "^10.9.2"

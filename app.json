@@ -41,6 +41,17 @@
           "iosAppId": "ca-app-pub-3940256099942544~1458002511",
           "skAdNetworkItems": []
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": false
+          },
+          "ios": {
+            "newArchEnabled": false
+          }
+        }
       ]
     ],
     "extra": {

@@ -857,11 +857,11 @@ app.post("/api/wallet/boost", async (req, res) => {
 });
 
 // ─── Vidéos Récompensées (Rewarded Ads) ──────────────────────────────
-const POINTS_PER_VIDEO = 5;
-const MAX_DAILY_VIDEOS = 10;
+const POINTS_PER_VIDEO = 20;
+const MAX_DAILY_VIDEOS = 15;
 const MIN_SECS_BETWEEN_VIEWS = 30;
-const MIN_WITHDRAWAL_POINTS = 5000;
-const POINTS_TO_FCFA = 0.25; // 1000 pts = 250 FCFA
+const MIN_WITHDRAWAL_POINTS = 10000;
+const POINTS_TO_FCFA = 0.1; // 10 000 pts = 1 000 FCFA
 
 app.post("/api/rewards/video-complete", async (req, res) => {
   try {

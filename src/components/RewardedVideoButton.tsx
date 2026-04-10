@@ -11,7 +11,7 @@ import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from "react-nat
 import { api } from "../services/api";
 
 const AD_UNIT_ID = TestIds.REWARDED;
-const POINTS_PER_VIDEO = 5;
+const POINTS_PER_VIDEO = 20;
 
 interface Props {
   todayViews: number;
@@ -53,7 +53,7 @@ export default function RewardedVideoButton({ todayViews, maxDaily, userUid, onP
         onPointsEarned(result.totalPoints);
         Alert.alert(
           "🎉 Bravo !",
-          `+${POINTS_PER_VIDEO} points crédités ! Total : ${result.totalPoints} pts (${(result.totalPoints * 0.25).toFixed(0)} FCFA)`,
+          `+${POINTS_PER_VIDEO} points crédités ! Total : ${result.totalPoints} pts (${Math.floor(result.totalPoints * 0.1)} FCFA)`,
           [{ text: "Super !" }]
         );
       } catch (e: any) {
@@ -94,8 +94,8 @@ export default function RewardedVideoButton({ todayViews, maxDaily, userUid, onP
       <View style={[styles.btn, styles.btnDisabled]}>
         <Text style={styles.btnIcon}>✅</Text>
         <View>
-          <Text style={styles.btnTitle}>Limite atteinte pour aujourd'hui</Text>
-          <Text style={styles.btnSub}>Revenez demain pour gagner plus de points</Text>
+          <Text style={styles.btnTitleDisabled}>Limite atteinte pour aujourd'hui</Text>
+          <Text style={styles.btnSub}>Revenez demain pour plus de points !</Text>
         </View>
       </View>
     );
@@ -143,8 +143,9 @@ const styles = StyleSheet.create({
   },
   btnIcon: { fontSize: 28 },
   btnTitle: { fontSize: 14, fontWeight: "800", color: "#fff" },
+  btnTitleDisabled: { fontSize: 14, fontWeight: "800", color: "#6C757D" },
   btnTitleWhite: { fontSize: 14, fontWeight: "700", color: "#fff", marginLeft: 10 },
-  btnSub: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 2 },
+  btnSub: { fontSize: 12, color: "rgba(100,100,100,0.85)", marginTop: 2 },
   badge: {
     backgroundColor: "rgba(255,255,255,0.25)",
     borderRadius: 20,

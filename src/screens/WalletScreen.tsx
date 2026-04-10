@@ -16,6 +16,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 import RewardedVideoButton from "../components/RewardedVideoButton";
+import AdBanner from "../components/AdBanner";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -35,10 +36,10 @@ const PROVIDERS = [
   { id: "moov", name: "Moov Money", flag: "🔵" },
 ];
 
-const POINTS_TO_FCFA = 0.25;
-const MIN_WITHDRAWAL = 5000;
-const MAX_DAILY = 10;
-const POINTS_PER_VIDEO = 5;
+const POINTS_TO_FCFA = 0.1;
+const MIN_WITHDRAWAL = 10000;
+const MAX_DAILY = 15;
+const POINTS_PER_VIDEO = 20;
 
 interface RewardStatus {
   totalPoints: number;
@@ -162,7 +163,7 @@ export default function WalletScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(); }} tintColor={COLORS.primary} />}
       >
         {isBanned && (
@@ -178,7 +179,7 @@ export default function WalletScreen() {
           <Text style={styles.balancePoints}>{pts.toLocaleString("fr-FR")} pts</Text>
           <Text style={styles.balanceFcfa}>{fcfa.toLocaleString("fr-FR")} FCFA</Text>
           <View style={styles.balanceInfo}>
-            <Text style={styles.balanceInfoText}>1 000 pts = 250 FCFA</Text>
+            <Text style={styles.balanceInfoText}>10 000 pts = 1 000 FCFA</Text>
           </View>
         </View>
 
@@ -195,7 +196,7 @@ export default function WalletScreen() {
           <Text style={styles.progressCaption}>
             {todayViews < MAX_DAILY
               ? `${MAX_DAILY - todayViews} vidéo${MAX_DAILY - todayViews > 1 ? "s" : ""} restante${MAX_DAILY - todayViews > 1 ? "s" : ""} (+${(MAX_DAILY - todayViews) * POINTS_PER_VIDEO} pts max)`
-              : "Limite atteinte — revenez demain !"}
+              : "Revenez demain pour plus de points !"}
           </Text>
 
           {!isBanned && (
@@ -219,6 +220,19 @@ export default function WalletScreen() {
         </View>
 
         <View style={styles.section}>
+          <TouchableOpacity style={styles.missionsCard} activeOpacity={0.85} onPress={() => Alert.alert("🚀 Missions Spéciales", "Bientôt disponible : Gagnez jusqu'à 5 000 points par mission !")}>
+            <View style={styles.missionsLeft}>
+              <Text style={styles.missionsIcon}>🎯</Text>
+              <View>
+                <Text style={styles.missionsTitle}>Missions Spéciales</Text>
+                <Text style={styles.missionsSub}>Bientôt disponible : Gagnez jusqu'à 5 000 points par mission !</Text>
+              </View>
+            </View>
+            <Text style={styles.missionsArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>💸 Retrait Mobile Money</Text>
           <View style={styles.withdrawCard}>
             <View style={styles.withdrawRow}>
@@ -230,7 +244,7 @@ export default function WalletScreen() {
                 <Text style={styles.withdrawSub}>
                   {canWithdraw
                     ? `Vous pouvez retirer ${fcfa.toLocaleString("fr-FR")} FCFA`
-                    : `Minimum requis : ${MIN_WITHDRAWAL.toLocaleString("fr-FR")} pts = ${(MIN_WITHDRAWAL * POINTS_TO_FCFA).toFixed(0)} FCFA`}
+                    : `Minimum requis : ${MIN_WITHDRAWAL.toLocaleString("fr-FR")} pts = 1 000 FCFA`}
                 </Text>
               </View>
             </View>
@@ -286,6 +300,8 @@ export default function WalletScreen() {
           )}
         </View>
       </ScrollView>
+
+      <AdBanner />
 
       <Modal visible={withdrawModal} animationType="slide" transparent onRequestClose={() => setWithdrawModal(false)}>
         <View style={styles.modalOverlay}>
@@ -390,6 +406,17 @@ const styles = StyleSheet.create({
   progressBarFill: { height: "100%", backgroundColor: COLORS.primary, borderRadius: 4 },
   progressCaption: { fontSize: 12, color: COLORS.muted, marginBottom: 12 },
   videoButtonWrapper: { marginTop: 4 },
+  missionsCard: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: "#FFF8E1", borderRadius: 16, padding: 16,
+    borderWidth: 1.5, borderColor: "#FFE082",
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+  },
+  missionsLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  missionsIcon: { fontSize: 30 },
+  missionsTitle: { fontSize: 14, fontWeight: "800", color: "#5D4037", marginBottom: 3 },
+  missionsSub: { fontSize: 12, color: "#795548", lineHeight: 17, flexWrap: "wrap", maxWidth: "90%" },
+  missionsArrow: { fontSize: 26, color: "#F9A825", fontWeight: "700" },
   withdrawCard: {
     backgroundColor: COLORS.card, borderRadius: 16, padding: 16,
     borderWidth: 1, borderColor: COLORS.border,

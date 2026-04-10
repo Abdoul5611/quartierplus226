@@ -42,17 +42,8 @@
           "skAdNetworkItems": []
         }
       ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "newArchEnabled": false
-          },
-          "ios": {
-            "newArchEnabled": false
-          }
-        }
-      ]
+      "expo-build-properties",
+      "expo-system-ui"
     ],
     "extra": {
       "adminEmail": "administrateurquartierplus@gmail.com",

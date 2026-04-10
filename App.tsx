@@ -1,6 +1,5 @@
 import "react-native-gesture-handler";
-import React, { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import React, { useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -9,18 +8,19 @@ import { AuthProvider } from "./src/context/AuthContext";
 import TabNavigator from "./src/navigation/TabNavigator";
 
 export default function App() {
-  const [adsReady, setAdsReady] = useState(Platform.OS === "web");
+  // DÉSACTIVÉ pour le build de test - réactiver au build suivant
+  const [adsReady] = useState(true); // était: useState(Platform.OS === "web")
 
-  useEffect(() => {
-    if (Platform.OS === "web") return;
-    let cancelled = false;
-    import("./src/utils/initMobileAds").then(({ initMobileAds }) => {
-      initMobileAds().finally(() => {
-        if (!cancelled) setAdsReady(true);
-      });
-    });
-    return () => { cancelled = true; };
-  }, []);
+  // useEffect(() => {
+  //   if (Platform.OS === "web") return;
+  //   let cancelled = false;
+  //   import("./src/utils/initMobileAds").then(({ initMobileAds }) => {
+  //     initMobileAds().finally(() => {
+  //       if (!cancelled) setAdsReady(true);
+  //     });
+  //   });
+  //   return () => { cancelled = true; };
+  // }, []);
 
   if (!adsReady) return null;
 

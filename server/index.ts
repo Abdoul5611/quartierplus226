@@ -39,7 +39,8 @@ app.get("/api/health", async (_req, res) => {
   try {
     await db.select().from(users).limit(1);
     res.json({ status: "ok", services: { database: "connected", cloudinary: "configured" } });
-  } catch (err) {
+  } catch (err: any) {
+    console.error("[Health] DB error:", err?.message, err?.cause?.message);
     res.status(500).json({ status: "error", message: String(err) });
   }
 });

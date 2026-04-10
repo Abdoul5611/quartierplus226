@@ -1,13 +1,16 @@
 
-const PROD_URL = "https://59d71096-599a-4b46-9f60-6f5ff458e92e-00-yjuayaaw6lwg.kirk.replit.dev";
+const CURRENT_DEV_URL = "https://20949130-e227-47cc-8ac4-6d0a17b56e8a-00-2uucs99lk5vth.picard.replit.dev";
 
 function buildApiUrl(): string {
+  if (typeof window !== "undefined") {
+    return "";
+  }
   const raw = process.env.EXPO_PUBLIC_DOMAIN || "";
   if (raw) {
     let url = raw.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
-    return url ? `https://${url}` : PROD_URL;
+    return url ? `https://${url}` : CURRENT_DEV_URL;
   }
-  return PROD_URL;
+  return CURRENT_DEV_URL;
 }
 
 export const BASE_URL = buildApiUrl();

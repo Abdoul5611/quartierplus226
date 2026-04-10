@@ -54,14 +54,14 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - Endpoint : `POST /api/payment/boost/initiate` + `GET /api/payment/boost/status/:txId`
 - Config publique disponible : `GET /api/config/payment`
 
-## Corrections appliquées (nouveau compte Replit)
+## Corrections appliquées (nouveau compte Replit - Avril 2026)
 
-- **app.json** : Nom corrigé → "Quartier Plus", URL hardcodée de l'ancien compte supprimée
-- **api.ts** : PROD_URL mis à jour vers le nouveau domaine Replit, simplifié sans expo-constants
-- **start.sh** : Utilise `npx expo start` (plus `./node_modules/.bin/expo` qui échouait)
-- **metro.config.js** : Resolver personnalisé pour `expo-modules-core` (résolution web)
-- **eas.json** : Ajout de `EXPO_PUBLIC_DOMAIN` + `buildType: apk` pour preview/production
-- **Domaine actuel** : `59d71096-599a-4b46-9f60-6f5ff458e92e-00-yjuayaaw6lwg.kirk.replit.dev`
+- **db/index.ts** : SSL configuré pour Neon PostgreSQL (`rejectUnauthorized: false`)
+- **db/schema.ts** : Colonnes manquantes ajoutées : `is_admin`, `two_factor_enabled`, `two_factor_secret`
+- **Base de données** : Table `help_requests` créée avec le bon schéma
+- **api.ts** : Utilise des URLs relatives sur web (vide), domaine mis à jour pour le natif
+- **metro.config.js** : `allowedHosts: "all"` ajouté pour compatibilité proxy Replit
+- **Domaine actuel** : `20949130-e227-47cc-8ac4-6d0a17b56e8a-00-2uucs99lk5vth.picard.replit.dev`
 
 ## Tables de base de données
 
@@ -75,6 +75,11 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - `referral_bonuses` - Bonus de parrainage
 - `publications` - Publications QuartierPlus (avec audio)
 - `marche` - Marché local (produits à vendre)
+- `help_requests` - Demandes d'aide/support (admin)
+- `messages` - Messages dans les canaux
+- `votes` - Votes sur les sondages
+- `transactions` - Transactions financières
+- `video_views` - Vues de vidéos (pour points)
 
 ## API Routes
 

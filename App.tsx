@@ -1,17 +1,28 @@
 import "react-native-gesture-handler";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import { Platform } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { initMobileAds } from "./src/utils/initMobileAds";
 import ErrorBoundary from "./src/components/ErrorBoundary";
 import { AuthProvider } from "./src/context/AuthContext";
 import TabNavigator from "./src/navigation/TabNavigator";
 
 export default function App() {
+  const [adsReady, setAdsReady] = useState(Platform.OS === "web");
+
   useEffect(() => {
-    initMobileAds();
+    if (Platform.OS === "web") return;
+    let cancelled = false;
+    import("./src/utils/initMobileAds").then(({ initMobileAds }) => {
+      initMobileAds().finally(() => {
+        if (!cancelled) setAdsReady(true);
+      });
+    });
+    return () => { cancelled = true; };
   }, []);
+
+  if (!adsReady) return null;
 
   return (
     <ErrorBoundary>

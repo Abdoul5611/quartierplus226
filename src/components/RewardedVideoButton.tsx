@@ -1,9 +1,5 @@
 import React from "react";
-// DÉSACTIVÉ pour le build de test - réactiver au build suivant
-// import { useEffect, useRef, useState } from "react";
-// import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from "react-native";
-// import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from "react-native-google-mobile-ads";
-// import { api } from "../services/api";
+import { View, Text, StyleSheet } from "react-native";
 
 interface Props {
   todayViews: number;
@@ -13,5 +9,28 @@ interface Props {
 }
 
 export default function RewardedVideoButton(_props: Props) {
-  return null; // Pubs désactivées pour le build de test
+  return (
+    <View style={styles.btn}>
+      <Text style={styles.btnIcon}>▶️</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.btnTitle}>Publicité bientôt disponible</Text>
+        <Text style={styles.btnSub}>Les vidéos récompensées arrivent prochainement</Text>
+      </View>
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  btn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#E9ECEF",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 4,
+  },
+  btnIcon: { fontSize: 28 },
+  btnTitle: { fontSize: 14, fontWeight: "800", color: "#6C757D" },
+  btnSub: { fontSize: 12, color: "#adb5bd", marginTop: 2 },
+});

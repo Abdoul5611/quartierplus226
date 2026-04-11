@@ -13,12 +13,15 @@ pkill -f "dist/server/index.js" 2>/dev/null || true
 pkill -f "expo start" 2>/dev/null || true
 sleep 1
 
-echo "Démarrage du serveur backend..."
+echo "Compilation du serveur TypeScript..."
+npx tsc -p tsconfig.server.json
+
+echo "Démarrage du serveur backend (port 5000)..."
 node dist/server/index.js &
 BACKEND_PID=$!
 
-echo "Démarrage Expo Web..."
-CI=1 npx expo start --web &
+echo "Démarrage Expo Web (port 8081)..."
+CI=1 npx expo start --web --port 8081 &
 EXPO_PID=$!
 
 wait $BACKEND_PID $EXPO_PID

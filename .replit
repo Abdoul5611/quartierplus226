@@ -44,3 +44,8 @@ externalPort = 3001
 [[ports]]
 localPort = 8083
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+NGROK_AUTHTOKEN = "cr_3CDzU3hXTp21ptB3aOVTdmcex2R"

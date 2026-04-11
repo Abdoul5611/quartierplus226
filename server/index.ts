@@ -1,5 +1,5 @@
 import express from "express";
-import { createProxyMiddleware } from "http-proxy-middleware";
+import path from "path";
 import { db } from "../db";
 import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
@@ -1292,24 +1292,17 @@ app.post("/api/upload/profile", async (req, res) => {
   }
 });
 
-// ─── Proxy → Expo ─────────────────────────────────────────────────────
-app.use(
-  "/",
-  createProxyMiddleware({
-    target: `http://localhost:${EXPO_PORT}`,
-    changeOrigin: true,
-    ws: true,
-    on: {
-      error: (_err, _req, res: any) => {
-        res.writeHead?.(502, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ message: "Interface en cours de chargement, patientez..." }));
-      },
-    },
-  })
-);
+// ─── Build Web Statique ────────────────────────────────────────────────
+const WEB_DIST = path.join(__dirname, "..", "..", "web-dist");
+app.use(express.static(WEB_DIST));
+
+// SPA fallback : toutes les routes inconnues renvoient index.html
+app.use((_req, res) => {
+  res.sendFile(path.join(WEB_DIST, "index.html"));
+});
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Serveur QuartierPlus démarré sur le port ${PORT}`);
-  console.log(`🔄 Proxy vers Expo sur le port ${EXPO_PORT}`);
+  console.log(`📦 Serve fichiers statiques depuis web-dist/`);
   console.log(`🔗 API: http://localhost:${PORT}/api/health`);
 });

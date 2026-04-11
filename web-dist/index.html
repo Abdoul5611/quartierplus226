@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>QuartierPlus</title>
+    <style id="expo-reset">
+      html, body { height: 100%; margin: 0; }
+      body { overflow: hidden; }
+      #root { display: flex; height: 100%; flex: 1; }
+      #splash {
+        position: fixed; inset: 0; background: #2E7D32;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        z-index: 9999; transition: opacity 0.4s;
+      }
+      #splash h1 { color: #fff; font-family: sans-serif; font-size: 28px; margin: 0 0 8px; }
+      #splash p  { color: rgba(255,255,255,0.75); font-family: sans-serif; font-size: 14px; margin: 0; }
+      #splash.hidden { opacity: 0; pointer-events: none; }
+    </style>
+    <link rel="icon" href="/favicon.ico" />
+  </head>
+  <body>
+    <div id="splash">
+      <h1>QuartierPlus</h1>
+      <p>Chargement de l'application...</p>
+    </div>
+    <noscript>Activez JavaScript pour utiliser QuartierPlus.</noscript>
+    <div id="root"></div>
+    <script>
+      window.onerror = function(msg, src, line, col, err) {
+        var sp = document.getElementById('splash');
+        if (sp) {
+          sp.style.background = '#B71C1C';
+          var stack = err && err.stack ? '<br/><small style="opacity:0.7">' + err.stack.substring(0, 400) + '</small>' : '';
+          sp.innerHTML = '<h1 style="color:#fff;font-family:sans-serif;margin:0 0 12px">Erreur JS</h1><p style="color:rgba(255,255,255,0.85);font-family:monospace;padding:0 24px;text-align:center;font-size:12px">' + msg + stack + '</p>';
+        }
+      };
+      // Masquer le splash quand React monte
+      var _origRender = window.__reactFiberErrorDialog;
+      document.addEventListener('DOMContentLoaded', function() {
+        var observer = new MutationObserver(function() {
+          if (document.getElementById('root') && document.getElementById('root').children.length > 0) {
+            var sp = document.getElementById('splash');
+            if (sp) sp.classList.add('hidden');
+            setTimeout(function() { if (sp) sp.remove(); }, 500);
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.getElementById('root'), { childList: true, subtree: true });
+      });
+    </script>
+    <script src="/_expo/static/js/web/index-cc50c63d52d8850109fb790655017d84.js" defer></script>
+  </body>
+</html>

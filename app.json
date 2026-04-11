@@ -4,13 +4,10 @@
     "slug": "quartierplus",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/new_icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": false,
     "splash": {
-      "image": "./assets/new_icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#2E8B57"
     },
     "ios": {
       "supportsTablet": true,
@@ -18,8 +15,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/new_icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#2E8B57"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,

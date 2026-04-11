@@ -12,8 +12,8 @@ echo "Démarrage du serveur backend API sur le port 5000..."
 npx ts-node --project tsconfig.server.json server/index.ts &
 BACKEND_PID=$!
 
-echo "Démarrage Expo en mode tunnel..."
-npx expo start --tunnel &
+echo "Démarrage Expo..."
+npx expo start --tunnel --non-interactive 2>&1 || npx expo start --non-interactive &
 EXPO_PID=$!
 
 wait $BACKEND_PID $EXPO_PID

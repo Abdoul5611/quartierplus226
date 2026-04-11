@@ -1,18 +1,28 @@
-import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 import { BASE_URL } from "./api";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+async function getNotifications() {
+  if (Platform.OS === "web") return null;
+  return import("expo-notifications");
+}
+
+getNotifications().then((Notifications) => {
+  Notifications?.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
 });
 
 export async function registerForPushNotifications(firebaseUid: string): Promise<string | null> {
   try {
+    const Notifications = await getNotifications();
+    if (!Notifications) return null;
+
     let permissionsResult: any = await Notifications.getPermissionsAsync();
 
     if (!permissionsResult.granted) {
@@ -39,10 +49,16 @@ export async function registerForPushNotifications(firebaseUid: string): Promise
 }
 
 export function addNotificationListener(
-  onReceived: (n: Notifications.Notification) => void,
-  onResponse: (r: Notifications.NotificationResponse) => void
+  onReceived: (n: any) => void,
+  onResponse: (r: any) => void
 ) {
-  const s1 = Notifications.addNotificationReceivedListener(onReceived);
-  const s2 = Notifications.addNotificationResponseReceivedListener(onResponse);
-  return () => { s1.remove(); s2.remove(); };
+  if (Platform.OS === "web") return () => {};
+  let cleanup = () => {};
+  getNotifications().then((Notifications) => {
+    if (!Notifications) return;
+    const s1 = Notifications.addNotificationReceivedListener(onReceived);
+    const s2 = Notifications.addNotificationResponseReceivedListener(onResponse);
+    cleanup = () => { s1.remove(); s2.remove(); };
+  });
+  return () => cleanup();
 }

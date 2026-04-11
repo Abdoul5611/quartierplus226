@@ -9,7 +9,6 @@ import {
   Linking,
   Alert,
 } from "react-native";
-import * as Location from "expo-location";
 import { api, MarcheItem, Post } from "../services/api";
 
 const COLORS = {
@@ -41,7 +40,7 @@ const TYPE_FILTERS = [
 ];
 
 export default function CarteScreen() {
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [location, setLocation] = useState<any | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<string>("pending");
   const [filter, setFilter] = useState("tous");
   const [stats, setStats] = useState({ posts: 0, marche: 0 });
@@ -52,15 +51,20 @@ export default function CarteScreen() {
   }, []);
 
   const requestLocation = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    setPermissionStatus(status);
-    if (status === "granted") {
-      try {
+    try {
+      if (Platform.OS === "web") {
+        setPermissionStatus("denied");
+        return;
+      }
+      const Location = await import("expo-location");
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setPermissionStatus(status);
+      if (status === "granted") {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setLocation(loc);
-      } catch (e) {
-        console.error("Erreur géolocalisation:", e);
       }
+    } catch (e) {
+      console.error("Erreur géolocalisation:", e);
     }
   };
 

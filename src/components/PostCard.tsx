@@ -17,8 +17,6 @@ import {
   SafeAreaView,
 } from "react-native";
 import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
-import * as FileSystem from "expo-file-system/legacy";
-import * as MediaLibrary from "expo-media-library";
 import { Post, api } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import BoostPaymentModal from "./BoostPaymentModal";
@@ -84,6 +82,12 @@ function FullscreenMedia({
   const handleDownload = async () => {
     setDownloading(true);
     try {
+      if (Platform.OS === "web") {
+        Alert.alert("Non disponible", "L'enregistrement dans la galerie est disponible dans l'application Android.");
+        return;
+      }
+      const FileSystem = await import("expo-file-system/legacy");
+      const MediaLibrary = await import("expo-media-library");
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== "granted") {
         Alert.alert("Permission refusée", "Autorisez l'accès à la galerie dans les réglages.");

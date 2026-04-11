@@ -62,6 +62,7 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - **api.ts** : Utilise des URLs relatives sur web (vide), domaine mis à jour pour le natif
 - **metro.config.js** : `allowedHosts: "all"` ajouté pour compatibilité proxy Replit
 - **Domaine actuel** : `20949130-e227-47cc-8ac4-6d0a17b56e8a-00-2uucs99lk5vth.picard.replit.dev`
+- **Préparation APK Android** : profil EAS `preview` configuré en `buildType: "apk"` ; nettoyage `.expo`/`web-build` effectué ; imports `expo-notifications`, `expo-location`, `expo-file-system` et `expo-media-library` chargés uniquement côté natif/à l’usage pour éviter les blocages Web `requireOptionalNativeModule` sans casser l’APK.
 
 ## Tables de base de données
 

@@ -16,7 +16,6 @@ import {
   Image,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
 import { Video, ResizeMode } from "expo-av";
 import { useNavigation } from "@react-navigation/native";
 import { api, Post } from "../services/api";
@@ -67,7 +66,9 @@ export default function AccueilScreen() {
 
   useEffect(() => {
     (async () => {
+      if (Platform.OS === "web") return;
       try {
+        const Location = await import("expo-location");
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== "granted") return;
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });

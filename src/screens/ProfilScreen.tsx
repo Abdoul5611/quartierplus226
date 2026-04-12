@@ -49,6 +49,7 @@ export default function ProfilScreen() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [photoKey, setPhotoKey] = useState<number>(Date.now());
+  const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const [myPosts, setMyPosts] = useState<Post[]>([]);
   const [postsLoading, setPostsLoading] = useState(false);
   const [rulesModal, setRulesModal] = useState(false);
@@ -208,23 +209,8 @@ export default function ProfilScreen() {
     }
   };
 
-  const ADMIN_WHATSAPP = "+2250101010101";
-
   const handleContactAdmin = () => {
-    const mailUrl = "mailto:abdoulquartierplus@gmail.com?subject=Support%20QuartierPlus&body=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20QuartierPlus.";
-    const waUrl = `whatsapp://send?phone=${ADMIN_WHATSAPP}&text=${encodeURIComponent("Bonjour, j'ai besoin d'aide sur QuartierPlus.")}`;
-    const waFallback = `https://wa.me/${ADMIN_WHATSAPP.replace("+", "")}?text=${encodeURIComponent("Bonjour, j'ai besoin d'aide sur QuartierPlus.")}`;
-    Alert.alert("Contacter l'Admin", "Choisissez votre mode de contact :", [
-      {
-        text: "💬 WhatsApp",
-        onPress: () =>
-          Linking.canOpenURL(waUrl)
-            .then((supported) => Linking.openURL(supported ? waUrl : waFallback))
-            .catch(() => Linking.openURL(waFallback)),
-      },
-      { text: "📧 Email", onPress: () => Linking.openURL(mailUrl) },
-      { text: "Annuler", style: "cancel" },
-    ]);
+    Linking.openURL("https://wa.me/22656119567");
   };
 
   const handleInvite = async () => {
@@ -242,28 +228,7 @@ export default function ProfilScreen() {
   };
 
   const handleReport = () => {
-    if (!firebaseUser) return;
-    const userId = firebaseUser.uid;
-    const userName = firebaseUser.displayName || dbUser?.display_name || "Inconnu";
-    const waText = encodeURIComponent(
-      `🚨 Signalement d'abus sur QuartierPlus\nUtilisateur : ${userName}\nID : ${userId}\nMotif : comportement abusif.`
-    );
-    const mailBody = encodeURIComponent(
-      `Signalement d'abus\n\nUtilisateur : ${userName}\nID : ${userId}\n\nMotif : comportement abusif.`
-    );
-    const waUrl = `whatsapp://send?phone=${ADMIN_WHATSAPP}&text=${waText}`;
-    const waFallback = `https://wa.me/${ADMIN_WHATSAPP.replace("+", "")}?text=${waText}`;
-    Alert.alert("Signaler un abus", "Choisissez votre mode d'envoi :", [
-      {
-        text: "💬 WhatsApp",
-        onPress: () =>
-          Linking.canOpenURL(waUrl)
-            .then((supported) => Linking.openURL(supported ? waUrl : waFallback))
-            .catch(() => Linking.openURL(waFallback)),
-      },
-      { text: "📧 Email", onPress: () => Linking.openURL(`mailto:abdoulquartierplus@gmail.com?subject=Signalement%20abus&body=${mailBody}`) },
-      { text: "Annuler", style: "cancel" },
-    ]);
+    Linking.openURL("mailto:administrateurquartierplus@gmail.com?subject=Signalement%20Abus");
   };
 
   const handleDeleteAccount = async () => {
@@ -297,24 +262,36 @@ export default function ProfilScreen() {
         allowsEditing: true,
         aspect: [1, 1],
       });
-      if (!result.canceled && result.assets[0]?.base64) {
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        // Affichage immédiat avec l'URI locale avant confirmation serveur
+        if (asset.uri) setLocalPhotoUri(asset.uri);
+        if (!asset.base64) {
+          Alert.alert("Erreur", "Image non lisible. Réessayez.");
+          return;
+        }
         setPhotoUploading(true);
         try {
           const res = await fetch(`${BASE_URL}/api/upload/profile`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ base64: result.assets[0].base64, user_id: firebaseUser.uid }),
+            body: JSON.stringify({ base64: asset.base64, user_id: firebaseUser.uid }),
           });
           if (!res.ok) throw new Error("Erreur upload");
           await refreshUser();
           setPhotoKey(Date.now());
           Alert.alert("✅", "Photo de profil mise à jour !");
+        } catch (err: any) {
+          // En cas d'erreur serveur, on efface l'aperçu local
+          setLocalPhotoUri(null);
+          Alert.alert("Erreur", err.message || "Impossible de mettre à jour la photo.");
         } finally {
           setPhotoUploading(false);
         }
       }
     } catch (err: any) {
       setPhotoUploading(false);
+      setLocalPhotoUri(null);
       Alert.alert("Erreur", err.message || "Impossible de mettre à jour la photo.");
     }
   };
@@ -424,7 +401,7 @@ export default function ProfilScreen() {
   }
 
   const displayNameText = dbUser?.display_name || firebaseUser.displayName || "Voisin";
-  const profilePhoto = dbUser?.profile_photo || dbUser?.avatar || firebaseUser.photoURL;
+  const profilePhoto = localPhotoUri || dbUser?.profile_photo || dbUser?.avatar || firebaseUser.photoURL;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }}>

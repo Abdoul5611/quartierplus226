@@ -40,11 +40,8 @@
       "expo-system-ui"
     ],
     "extra": {
-      "adminEmail": "administrateurquartierplus@gmail.com",
-      "eas": {
-        "projectId": "079118df-a585-4c10-b7c7-5862d5b0721e"
-      }
+      "adminEmail": "administrateurquartierplus@gmail.com"
     },
-    "owner": "quartierplus2002"
+    "owner": "Quartierplus2026"
   }
 }

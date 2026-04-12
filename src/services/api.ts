@@ -1,8 +1,10 @@
 
-const CURRENT_DEV_URL = "https://20949130-e227-47cc-8ac4-6d0a17b56e8a-00-2uucs99lk5vth.picard.replit.dev";
+import { Platform } from "react-native";
+
+const CURRENT_DEV_URL = "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev";
 
 function buildApiUrl(): string {
-  if (typeof window !== "undefined") {
+  if (Platform.OS === "web") {
     return "";
   }
   const raw = process.env.EXPO_PUBLIC_DOMAIN || "";

@@ -8,7 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://099a2100-55e9-47eb-8049-73aa1955a56b-00-24egvu7r3br9t.kirk.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev"
       }
     },
     "preview": {
@@ -18,7 +18,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://099a2100-55e9-47eb-8049-73aa1955a56b-00-24egvu7r3br9t.kirk.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev"
       }
     },
     "production": {
@@ -28,7 +28,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://099a2100-55e9-47eb-8049-73aa1955a56b-00-24egvu7r3br9t.kirk.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev"
       }
     }
   },

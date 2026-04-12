@@ -1,5 +1,4 @@
 const { getDefaultConfig } = require("expo/metro-config");
-const path = require("path");
 
 const config = getDefaultConfig(__dirname);
 
@@ -12,20 +11,6 @@ config.resolver.blockList = [
   localDirPattern,
   dbMigrationsPattern,
 ];
-
-const originalResolveRequest = config.resolver.resolveRequest;
-config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === "expo-modules-core") {
-    return {
-      filePath: path.resolve(__dirname, "node_modules/expo-modules-core/index.js"),
-      type: "sourceFile",
-    };
-  }
-  if (originalResolveRequest) {
-    return originalResolveRequest(context, moduleName, platform);
-  }
-  return context.resolveRequest(context, moduleName, platform);
-};
 
 config.server = {
   ...(config.server || {}),

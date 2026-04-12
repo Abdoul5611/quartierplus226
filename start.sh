@@ -13,7 +13,7 @@ pkill -f "dist/server/index.js" 2>/dev/null || true
 sleep 1
 
 echo "Compilation du serveur TypeScript..."
-npx tsc -p tsconfig.server.json
+./node_modules/.bin/tsc -p tsconfig.server.json
 
 echo "Démarrage du serveur QuartierPlus (port 5000)..."
 node dist/server/index.js &

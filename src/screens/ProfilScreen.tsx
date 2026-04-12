@@ -210,7 +210,7 @@ export default function ProfilScreen() {
   };
 
   const handleContactAdmin = () => {
-    Linking.openURL("https://wa.me/22656119567");
+    Linking.openURL("mailto:administrateurquartierplus@gmail.com?subject=Contact%20Administrateur");
   };
 
   const handleInvite = async () => {
@@ -228,7 +228,7 @@ export default function ProfilScreen() {
   };
 
   const handleReport = () => {
-    Linking.openURL("mailto:administrateurquartierplus@gmail.com?subject=Signalement%20Abus");
+    Linking.openURL("https://wa.me/22656119567?text=Je%20souhaite%20signaler%20un%20abus");
   };
 
   const handleDeleteAccount = async () => {

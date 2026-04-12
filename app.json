@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.quartierplus2002.quartierplus"
+      "bundleIdentifier": "com.quartierplus2026.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,8 +22,7 @@
         "backgroundColor": "#2E8B57"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.quartierplus2002.quartierplus",
+      "package": "com.quartierplus2026.app",
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",

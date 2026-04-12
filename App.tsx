@@ -1,4 +1,4 @@
-import "react-native-gesture-handler";
+import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
@@ -12,14 +12,14 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
-        <SafeAreaProvider>
-          <NavigationContainer>
-            <AuthProvider>
+        <AuthProvider>
+          <SafeAreaProvider>
+            <NavigationContainer>
               <StatusBar style="dark" backgroundColor="#FFFFFF" />
               <TabNavigator />
-            </AuthProvider>
-          </NavigationContainer>
-        </SafeAreaProvider>
+            </NavigationContainer>
+          </SafeAreaProvider>
+        </AuthProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>
   );

@@ -29,7 +29,6 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 
 config.server = {
   ...(config.server || {}),
-  allowedHosts: "all",
   enhanceMiddleware: (middleware) => {
     return (req, res, next) => {
       res.setHeader("Access-Control-Allow-Origin", "*");

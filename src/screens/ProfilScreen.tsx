@@ -208,9 +208,20 @@ export default function ProfilScreen() {
     }
   };
 
+  const ADMIN_WHATSAPP = "+2250101010101";
+
   const handleContactAdmin = () => {
     const mailUrl = "mailto:abdoulquartierplus@gmail.com?subject=Support%20QuartierPlus&body=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20QuartierPlus.";
+    const waUrl = `whatsapp://send?phone=${ADMIN_WHATSAPP}&text=${encodeURIComponent("Bonjour, j'ai besoin d'aide sur QuartierPlus.")}`;
+    const waFallback = `https://wa.me/${ADMIN_WHATSAPP.replace("+", "")}?text=${encodeURIComponent("Bonjour, j'ai besoin d'aide sur QuartierPlus.")}`;
     Alert.alert("Contacter l'Admin", "Choisissez votre mode de contact :", [
+      {
+        text: "💬 WhatsApp",
+        onPress: () =>
+          Linking.canOpenURL(waUrl)
+            .then((supported) => Linking.openURL(supported ? waUrl : waFallback))
+            .catch(() => Linking.openURL(waFallback)),
+      },
       { text: "📧 Email", onPress: () => Linking.openURL(mailUrl) },
       { text: "Annuler", style: "cancel" },
     ]);
@@ -240,9 +251,17 @@ export default function ProfilScreen() {
     const mailBody = encodeURIComponent(
       `Signalement d'abus\n\nUtilisateur : ${userName}\nID : ${userId}\n\nMotif : comportement abusif.`
     );
+    const waUrl = `whatsapp://send?phone=${ADMIN_WHATSAPP}&text=${waText}`;
+    const waFallback = `https://wa.me/${ADMIN_WHATSAPP.replace("+", "")}?text=${waText}`;
     Alert.alert("Signaler un abus", "Choisissez votre mode d'envoi :", [
-      { text: "WhatsApp", onPress: () => Linking.openURL(`https://wa.me/+2250101010101?text=${waText}`) },
-      { text: "Email", onPress: () => Linking.openURL(`mailto:abdoulquartierplus@gmail.com?subject=Signalement%20abus&body=${mailBody}`) },
+      {
+        text: "💬 WhatsApp",
+        onPress: () =>
+          Linking.canOpenURL(waUrl)
+            .then((supported) => Linking.openURL(supported ? waUrl : waFallback))
+            .catch(() => Linking.openURL(waFallback)),
+      },
+      { text: "📧 Email", onPress: () => Linking.openURL(`mailto:abdoulquartierplus@gmail.com?subject=Signalement%20abus&body=${mailBody}`) },
       { text: "Annuler", style: "cancel" },
     ]);
   };

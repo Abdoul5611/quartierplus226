@@ -14,7 +14,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.quartierplus2026.app"
+      "bundleIdentifier": "com.quartierplus2026.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "QuartierPlus a besoin d'accéder à votre galerie pour changer votre photo de profil.",
+        "NSCameraUsageDescription": "QuartierPlus a besoin de votre caméra pour prendre une photo de profil.",
+        "NSPhotoLibraryAddUsageDescription": "QuartierPlus a besoin d'accéder à votre galerie pour sauvegarder des photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -26,7 +31,12 @@
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "VIBRATE"
+        "VIBRATE",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "CAMERA"
       ]
     },
     "scheme": "quartierplus",
@@ -36,7 +46,14 @@
     },
     "plugins": [
       "expo-build-properties",
-      "expo-system-ui"
+      "expo-system-ui",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "QuartierPlus a besoin d'accéder à votre galerie pour changer votre photo de profil.",
+          "cameraPermission": "QuartierPlus a besoin de votre caméra pour prendre une photo de profil."
+        }
+      ]
     ],
     "extra": {
       "adminEmail": "administrateurquartierplus@gmail.com",

@@ -22,8 +22,8 @@ const app = express();
 const PORT = 5000;
 const EXPO_PORT = 8081;
 
-app.use(express.json({ limit: "20mb" }));
-app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 app.use((_req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -1249,9 +1249,22 @@ app.post("/api/upload/video", async (req, res) => {
     if (!base64) return res.status(400).json({ error: "base64 requis" });
     const result = await cloudinary.uploader.upload(
       `data:video/mp4;base64,${base64}`,
-      { folder: folder || "quartierplus/videos", resource_type: "video" }
+      {
+        folder: folder || "quartierplus/videos",
+        resource_type: "video",
+        // Compression automatique : qualité auto + codec H.264 + max 720p
+        transformation: [
+          { quality: "auto", video_codec: "auto", width: 720, crop: "limit" },
+        ],
+        // Génération immédiate d'une miniature JPEG au temps 0
+        eager: [
+          { format: "jpg", transformation: [{ width: 480, crop: "fill", start_offset: "0" }] },
+        ],
+        eager_async: false,
+      }
     );
-    res.json({ url: result.secure_url, public_id: result.public_id });
+    const thumbnailUrl = (result as any).eager?.[0]?.secure_url ?? null;
+    res.json({ url: result.secure_url, public_id: result.public_id, thumbnail_url: thumbnailUrl });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

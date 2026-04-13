@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,8 @@ import {
   Platform,
   ScrollView,
   Image,
+  Animated,
+  Dimensions,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Video, ResizeMode } from "expo-av";
@@ -54,8 +56,12 @@ export default function AccueilScreen() {
   const [newContent, setNewContent] = useState("");
   const [newCategory, setNewCategory] = useState("general");
   const [isEmergency, setIsEmergency] = useState(false);
-  const [selectedMedia, setSelectedMedia] = useState<{ base64: string; type: "image" | "video"; uri: string } | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<{ base64?: string; type: "image" | "video"; uri: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [bgUploading, setBgUploading] = useState(false);
+  const [bgUploadLabel, setBgUploadLabel] = useState("Publication en cours...");
+  const uploadAnim = useRef(new Animated.Value(0)).current;
+  const SCREEN_W = Dimensions.get("window").width;
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [publicProfil, setPublicProfil] = useState<{ authorId: string; authorName: string; authorAvatar?: string } | null>(null);
   const [pollMode, setPollMode] = useState(false);
@@ -92,6 +98,15 @@ export default function AccueilScreen() {
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
+  // Anime la barre de progression vers une valeur cible (0–100)
+  const animateTo = (toValue: number, duration = 600) => {
+    Animated.timing(uploadAnim, {
+      toValue,
+      duration,
+      useNativeDriver: false,
+    }).start();
+  };
+
   const pickMedia = async (type: "image" | "video" | "both") => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -102,22 +117,27 @@ export default function AccueilScreen() {
       const mediaTypes: ImagePicker.MediaType[] =
         type === "image" ? ["images"] : type === "video" ? ["videos"] : ["images", "videos"];
 
+      const isVideoOnly = type === "video" || type === "both";
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes,
-        quality: 0.7,
-        base64: true,
-        videoMaxDuration: 60,
+        quality: 0.6,
+        // Pour les vidéos sur natif : pas de base64 (trop lourd), on lit le fichier en arrière-plan
+        // Pour les images et le web : base64 direct (fichiers légers)
+        base64: Platform.OS === "web" || !isVideoOnly,
+        videoMaxDuration: 90,
       });
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
         const isVideo = asset.type === "video";
-        if (!asset.base64) {
-          Alert.alert("Erreur", "Impossible de lire le fichier. Réessayez.");
+        // Pour les images, base64 requis
+        if (!isVideo && !asset.base64) {
+          Alert.alert("Erreur", "Impossible de lire l'image. Réessayez.");
           return;
         }
         setSelectedMedia({
-          base64: asset.base64,
+          base64: asset.base64 || undefined,
           type: isVideo ? "video" : "image",
           uri: asset.uri,
         });
@@ -139,19 +159,90 @@ export default function AccueilScreen() {
       Alert.alert("Connexion requise", "Connectez-vous pour publier.");
       return;
     }
+
+    // ─── CAS VIDÉO : upload en arrière-plan ─────────────────────────────────
+    if (selectedMedia?.type === "video" && !pollMode) {
+      const snapshot = {
+        content: newContent.trim(),
+        category: newCategory,
+        emergency: isEmergency,
+        videoUri: selectedMedia.uri,
+        videoBase64: selectedMedia.base64,
+        authorId: firebaseUser.uid,
+        authorName: firebaseUser.displayName || dbUser?.display_name || "Voisin",
+        authorAvatar: firebaseUser.photoURL || dbUser?.profile_photo || undefined,
+        lat: userLocation?.latitude,
+        lng: userLocation?.longitude,
+        cours: coursMode,
+        coursPrice: coursMode ? (parseInt(coursPrice) || 0) : undefined,
+      };
+
+      // Fermeture immédiate du modal — l'utilisateur peut continuer
+      resetModal();
+      uploadAnim.setValue(0);
+      setBgUploadLabel("Lecture de la vidéo...");
+      setBgUploading(true);
+      animateTo(15, 1500);
+
+      // Upload en tâche de fond
+      (async () => {
+        try {
+          // Étape 1 : lire le fichier si on n'a pas encore le base64 (natif)
+          let base64 = snapshot.videoBase64;
+          if (!base64 && Platform.OS !== "web") {
+            const FileSystem = await import("expo-file-system");
+            base64 = await FileSystem.readAsStringAsync(snapshot.videoUri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+          }
+          animateTo(30, 400);
+          setBgUploadLabel("Envoi de la vidéo...");
+
+          // Étape 2 : upload Cloudinary (compression + thumbnail côté serveur)
+          animateTo(80, 25000); // animation longue pendant l'upload réel
+          const uploaded = await api.uploadVideo(base64 || "", "quartierplus/videos");
+          animateTo(90, 300);
+          setBgUploadLabel("Création de la publication...");
+
+          // Étape 3 : créer le post
+          await api.createPost({
+            author_id: snapshot.authorId,
+            author_name: snapshot.authorName,
+            author_avatar: snapshot.authorAvatar,
+            content: snapshot.content,
+            category: snapshot.category,
+            is_emergency: snapshot.emergency,
+            video_uri: uploaded.url,
+            latitude: snapshot.lat,
+            longitude: snapshot.lng,
+            is_cours: snapshot.cours,
+            cours_price: snapshot.coursPrice,
+          } as any);
+
+          animateTo(100, 300);
+          setBgUploadLabel("Publié ✓");
+          await fetchPosts();
+        } catch (e: any) {
+          Alert.alert("Erreur vidéo", e.message || "Upload échoué. Réessayez.");
+        } finally {
+          setTimeout(() => {
+            setBgUploading(false);
+            uploadAnim.setValue(0);
+          }, 1200);
+        }
+      })();
+      return;
+    }
+
+    // ─── CAS TEXTE / IMAGE / SONDAGE : upload bloquant rapide ──────────────
     setUploading(true);
     try {
       let imageUri: string | undefined;
-      let videoUri: string | undefined;
 
       if (selectedMedia && !pollMode) {
-        if (selectedMedia.type === "video") {
-          const uploaded = await api.uploadVideo(selectedMedia.base64, "quartierplus/videos");
-          videoUri = uploaded.url;
-        } else {
-          const uploaded = await api.uploadImage(selectedMedia.base64, "quartierplus/posts");
-          imageUri = uploaded.url;
-        }
+        if (!selectedMedia.base64) throw new Error("Image non lisible.");
+        const uploaded = await api.uploadImage(selectedMedia.base64, "quartierplus/posts");
+        imageUri = uploaded.url;
       }
 
       await api.createPost({
@@ -162,7 +253,6 @@ export default function AccueilScreen() {
         category: newCategory,
         is_emergency: isEmergency,
         image_uri: imageUri,
-        video_uri: videoUri,
         latitude: userLocation?.latitude,
         longitude: userLocation?.longitude,
         poll_options: pollMode ? pollChoices.map((c) => ({ label: c.trim() })) : undefined,
@@ -170,13 +260,7 @@ export default function AccueilScreen() {
         cours_price: coursMode ? (parseInt(coursPrice) || 0) : undefined,
       } as any);
 
-      setNewContent("");
-      setNewCategory("general");
-      setIsEmergency(false);
-      setSelectedMedia(null);
-      setCoursMode(false);
-      setCoursPrice("");
-      setModalVisible(false);
+      resetModal();
       fetchPosts();
     } catch (e: any) {
       Alert.alert("Erreur", e.message || "Publication échouée. Réessayez.");
@@ -224,6 +308,29 @@ export default function AccueilScreen() {
           <Text style={styles.publishBtnText}>+ Publier</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ─── Barre de progression upload vidéo ─── */}
+      {bgUploading && (
+        <View style={styles.uploadBanner}>
+          <View style={styles.uploadBannerInner}>
+            <ActivityIndicator size="small" color="#fff" style={{ marginRight: 10 }} />
+            <Text style={styles.uploadBannerText}>{bgUploadLabel}</Text>
+          </View>
+          <View style={styles.uploadTrack}>
+            <Animated.View
+              style={[
+                styles.uploadBar,
+                {
+                  width: uploadAnim.interpolate({
+                    inputRange: [0, 100],
+                    outputRange: ["0%", "100%"],
+                  }),
+                },
+              ]}
+            />
+          </View>
+        </View>
+      )}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar} contentContainerStyle={styles.filterBarContent}>
         {CATEGORIES.map((cat) => (
@@ -559,4 +666,34 @@ const styles = StyleSheet.create({
   coursBoxSub: { fontSize: 12, color: "#795548", marginBottom: 10 },
   coursInput: { backgroundColor: "#fff", borderRadius: 10, padding: 10, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: "#F9A825" },
   coursNote: { fontSize: 12, color: "#2E7D32", fontWeight: "600", marginTop: 6 },
+  // ─── Barre de progression upload vidéo ───────────────────────────────────
+  uploadBanner: {
+    backgroundColor: "#1B5E20",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    zIndex: 100,
+  },
+  uploadBannerInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  uploadBannerText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+    flex: 1,
+  },
+  uploadTrack: {
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  uploadBar: {
+    height: 4,
+    backgroundColor: "#69F0AE",
+    borderRadius: 2,
+  },
 });

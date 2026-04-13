@@ -199,6 +199,8 @@ function AudioPlayer({ audioUrl, isMe }: { audioUrl: string; isMe: boolean }) {
   );
 }
 
+interface LastMsg { text: string; time: string; sender: string; unread: number }
+
 export default function MessagesScreen() {
   const { firebaseUser } = useAuth();
   const route = useRoute<any>();
@@ -209,9 +211,38 @@ export default function MessagesScreen() {
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [lastMessages, setLastMessages] = useState<Record<string, LastMsg>>({});
   const flatListRef = useRef<FlatList>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const handledParamRef = useRef<string | null>(null);
+
+  // Charge l'aperçu du dernier message pour chaque canal (liste WhatsApp)
+  const loadPreviews = useCallback(async () => {
+    const results: Record<string, LastMsg> = {};
+    await Promise.all(
+      CHANNELS.map(async (ch) => {
+        try {
+          const msgs = await fetchMessages(ch.id);
+          if (msgs.length > 0) {
+            const last = msgs[msgs.length - 1];
+            results[ch.id] = {
+              text: last.message_type === "audio" ? "🎵 Message vocal" : (last.text || ""),
+              time: last.created_at,
+              sender: last.sender_name,
+              unread: 0,
+            };
+          }
+        } catch {}
+      })
+    );
+    setLastMessages(results);
+  }, []);
+
+  useEffect(() => {
+    loadPreviews();
+    const interval = setInterval(loadPreviews, 15000);
+    return () => clearInterval(interval);
+  }, [loadPreviews]);
 
   useEffect(() => {
     const params = route.params as { initialChannel?: string; prefillText?: string } | undefined;
@@ -339,29 +370,58 @@ export default function MessagesScreen() {
     }
   };
 
+  const formatPreviewTime = (dateStr: string) => {
+    if (!dateStr) return "";
+    try {
+      const d = new Date(dateStr);
+      const now = new Date();
+      const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+      if (diffDays === 0) return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+      if (diffDays === 1) return "Hier";
+      if (diffDays < 7) return d.toLocaleDateString("fr-FR", { weekday: "short" });
+      return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+    } catch { return ""; }
+  };
+
   if (!activeChannel) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Messages</Text>
-          <Text style={styles.headerSub}>Canaux du quartier</Text>
+          <Text style={styles.headerSub}>Discussions du quartier</Text>
         </View>
         <FlatList
           data={CHANNELS}
           keyExtractor={(c) => c.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.channelCard} onPress={() => setActiveChannel(item)} activeOpacity={0.7}>
-              <View style={styles.channelIcon}>
-                <Text style={styles.channelIconText}>{item.icon}</Text>
-              </View>
-              <View style={styles.channelInfo}>
-                <Text style={styles.channelLabel}>{item.label}</Text>
-                <Text style={styles.channelDesc}>{item.description}</Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
-          )}
-          contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+          renderItem={({ item }) => {
+            const preview = lastMessages[item.id];
+            return (
+              <TouchableOpacity
+                style={styles.waRow}
+                onPress={() => setActiveChannel(item)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.waAvatar}>
+                  <Text style={styles.waAvatarText}>{item.icon}</Text>
+                </View>
+                <View style={styles.waBody}>
+                  <View style={styles.waTopRow}>
+                    <Text style={styles.waName}>{item.label}</Text>
+                    {preview?.time ? (
+                      <Text style={styles.waTime}>{formatPreviewTime(preview.time)}</Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.waPreview} numberOfLines={1}>
+                    {preview
+                      ? `${preview.sender}: ${preview.text}`
+                      : item.description}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+          ItemSeparatorComponent={() => <View style={styles.waSeparator} />}
+          contentContainerStyle={{ paddingBottom: 100 }}
         />
         {!firebaseUser && (
           <View style={styles.loginBanner}>
@@ -490,6 +550,23 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 22, fontWeight: "800", color: COLORS.primary },
   headerSub: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  // ─── Styles WhatsApp conversation list ───────────────────────────────────
+  waRow: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 16, paddingVertical: 13, backgroundColor: COLORS.card,
+  },
+  waAvatar: {
+    width: 54, height: 54, borderRadius: 27, backgroundColor: "#E8F5E9",
+    alignItems: "center", justifyContent: "center", marginRight: 14,
+  },
+  waAvatarText: { fontSize: 26 },
+  waBody: { flex: 1 },
+  waTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 3 },
+  waName: { fontSize: 16, fontWeight: "700", color: COLORS.text, flex: 1 },
+  waTime: { fontSize: 11, color: COLORS.muted, marginLeft: 8 },
+  waPreview: { fontSize: 13, color: COLORS.muted, flex: 1 },
+  waSeparator: { height: 1, backgroundColor: COLORS.border, marginLeft: 84 },
+  // ─── (Legacy - kept for possible reuse) ──────────────────────────────────
   channelCard: {
     backgroundColor: COLORS.card, borderRadius: 16, padding: 16,
     flexDirection: "row", alignItems: "center", marginBottom: 10,

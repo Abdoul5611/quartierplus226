@@ -802,7 +802,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4,
   },
   imageExpandIcon: { color: "#fff", fontSize: 14 },
-  videoContainer: { width: "100%", height: 220, borderRadius: 12, backgroundColor: "#000", marginBottom: 12, overflow: "hidden" },
+  videoContainer: { width: "100%", aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: "#000", marginBottom: 12, overflow: "hidden" },
   video: { width: "100%", height: "100%" },
   videoOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", padding: 10 },
   videoPlayCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.65)", alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: "rgba(255,255,255,0.6)" },

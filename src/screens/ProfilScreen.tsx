@@ -161,8 +161,10 @@ export default function ProfilScreen() {
   const handleSaveProfile = async () => {
     if (!firebaseUser) return;
     setAuthLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
-      await fetch(`${BASE_URL}/api/users/firebase/${firebaseUser.uid}`, {
+      const res = await fetch(`${BASE_URL}/api/users/firebase/${firebaseUser.uid}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -172,12 +174,23 @@ export default function ProfilScreen() {
           work: editForm.work.trim(),
           bio: editForm.bio.trim(),
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "Erreur serveur");
+        throw new Error(msg || `Erreur ${res.status}`);
+      }
       await refreshUser();
       setEditModal(false);
       Alert.alert("✅", "Profil mis à jour !");
     } catch (e: any) {
-      Alert.alert("Erreur", e.message || "Impossible de sauvegarder.");
+      clearTimeout(timeoutId);
+      if (e?.name === "AbortError") {
+        Alert.alert("Délai dépassé", "Le serveur ne répond pas. Vérifiez votre connexion et réessayez.");
+      } else {
+        Alert.alert("Erreur", e.message || "Impossible de sauvegarder.");
+      }
     } finally {
       setAuthLoading(false);
     }

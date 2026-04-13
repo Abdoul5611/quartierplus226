@@ -1294,10 +1294,23 @@ app.post("/api/upload/profile", async (req, res) => {
 
 // ─── Build Web Statique ────────────────────────────────────────────────
 const WEB_DIST = path.join(__dirname, "..", "..", "web-dist");
-app.use(express.static(WEB_DIST));
 
-// SPA fallback : toutes les routes inconnues renvoient index.html
+// index.html : jamais en cache navigateur (toujours la version fraîche)
+app.get("/", (_req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.sendFile(path.join(WEB_DIST, "index.html"));
+});
+
+// Fichiers JS/CSS/images : cachés par hash, servis normalement
+app.use(express.static(WEB_DIST, { maxAge: "1d", etag: true }));
+
+// SPA fallback : toutes les routes inconnues renvoient index.html sans cache
 app.use((_req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.sendFile(path.join(WEB_DIST, "index.html"));
 });
 

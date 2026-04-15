@@ -1,15 +1,21 @@
 # Quartier Plus
 
-Application communautaire de quartier construite avec Expo (React Native) et un serveur Express proxy.
+Application communautaire de quartier construite avec Expo (React Native) et un serveur Express. Architecture 100% native mobile (APK Android).
 
 ## Architecture
 
-- **Frontend** : Expo (React Native Web) sur le port 8081
-- **Serveur** : Express.js sur le port 5000 (proxy vers Expo + API REST)
+- **Frontend** : Expo (React Native) — navigation Bottom Tabs avec Ionicons, composants natifs (FlatList, KeyboardAvoidingView, Modal)
+- **Serveur** : Express.js sur le port 5000 (sert le web-dist Expo + API REST)
 - **Base de données** : Neon PostgreSQL via Drizzle ORM
-- **Stockage** : Cloudinary (images produits + messages vocaux)
+- **Stockage** : Cloudinary (images, vidéos)
 - **Auth** : Firebase Authentication
-- **Paiements** : Stripe
+- **Paiements** : FedaPay (Mobile Money FCFA)
+
+## Design Natif (style Instagram/Facebook)
+- **Tab bar** : Ionicons vectoriels professionnels avec highlight pill vert sur l'onglet actif
+- **Feed** : Cards pleine largeur (edge-to-edge), images/vidéos sans marges ni border-radius
+- **Séparateurs** : Gris système (#F0F2F5) entre les posts, style Facebook
+- **Médias** : Pleine largeur 100% de l'écran, aspect ratio 16:9 pour vidéos
 
 ## Structure du projet
 

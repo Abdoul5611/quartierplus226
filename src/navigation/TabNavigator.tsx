@@ -1,6 +1,7 @@
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Text, View, StyleSheet, Platform } from "react-native";
+import { Platform, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import AccueilScreen from "../screens/AccueilScreen";
 import CarteScreen from "../screens/CarteScreen";
 import MarcheScreen from "../screens/MarcheScreen";
@@ -19,20 +20,17 @@ const COLORS = {
   border: "#E9ECEF",
 };
 
-interface TabIconProps {
-  icon: string;
-  label: string;
-  focused: boolean;
-}
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
-function TabIcon({ icon, label, focused }: TabIconProps) {
-  return (
-    <View style={[styles.tabItem, focused && styles.tabItemFocused]}>
-      <Text style={[styles.tabEmoji, focused && styles.tabEmojiFocused]}>{icon}</Text>
-      <Text style={[styles.tabLabel, focused && styles.tabLabelFocused]}>{label}</Text>
-    </View>
-  );
-}
+const TAB_ICONS: Record<string, { active: IoniconName; inactive: IoniconName }> = {
+  Accueil: { active: "home", inactive: "home-outline" },
+  Carte: { active: "map", inactive: "map-outline" },
+  "Marché": { active: "storefront", inactive: "storefront-outline" },
+  Portefeuille: { active: "wallet", inactive: "wallet-outline" },
+  Messages: { active: "chatbubbles", inactive: "chatbubbles-outline" },
+  Profil: { active: "person", inactive: "person-outline" },
+  Admin: { active: "shield", inactive: "shield-outline" },
+};
 
 export default function TabNavigator() {
   const { isAdmin } = useAuth();
@@ -40,121 +38,64 @@ export default function TabNavigator() {
   return (
     <Tab.Navigator
       id="main-tab"
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarShowLabel: false,
-      }}
+        tabBarActiveTintColor: COLORS.primary,
+        tabBarInactiveTintColor: COLORS.inactive,
+        tabBarStyle: {
+          backgroundColor: COLORS.bg,
+          borderTopWidth: 0.5,
+          borderTopColor: COLORS.border,
+          height: Platform.OS === "ios" ? 88 : 64,
+          paddingBottom: Platform.OS === "ios" ? 28 : 8,
+          paddingTop: 8,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 16,
+          elevation: 12,
+        },
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: "600",
+          marginTop: 2,
+        },
+        tabBarIcon: ({ focused, color, size }) => {
+          const icons = TAB_ICONS[route.name];
+          const iconName = focused ? icons?.active : icons?.inactive;
+          return (
+            <View
+              style={
+                focused
+                  ? {
+                      backgroundColor: "#E8F5E9",
+                      borderRadius: 14,
+                      paddingHorizontal: 16,
+                      paddingVertical: 4,
+                      marginTop: 2,
+                    }
+                  : { marginTop: 2 }
+              }
+            >
+              <Ionicons
+                name={iconName || "ellipse-outline"}
+                size={22}
+                color={color}
+              />
+            </View>
+          );
+        },
+      })}
     >
-      <Tab.Screen
-        name="Accueil"
-        component={AccueilScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon icon="🏠" label="Accueil" focused={focused} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Carte"
-        component={CarteScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon icon="🗺️" label="Carte" focused={focused} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Marché"
-        component={MarcheScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon icon="🛒" label="Marché" focused={focused} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Portefeuille"
-        component={WalletScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon icon="💰" label="Wallet" focused={focused} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Messages"
-        component={MessagesScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon icon="💬" label="Messages" focused={focused} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Profil"
-        component={ProfilScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon icon="👤" label="Profil" focused={focused} />
-          ),
-        }}
-      />
+      <Tab.Screen name="Accueil" component={AccueilScreen} options={{ tabBarLabel: "Accueil" }} />
+      <Tab.Screen name="Carte" component={CarteScreen} options={{ tabBarLabel: "Carte" }} />
+      <Tab.Screen name="Marché" component={MarcheScreen} options={{ tabBarLabel: "Marché" }} />
+      <Tab.Screen name="Portefeuille" component={WalletScreen} options={{ tabBarLabel: "Wallet" }} />
+      <Tab.Screen name="Messages" component={MessagesScreen} options={{ tabBarLabel: "Messages" }} />
+      <Tab.Screen name="Profil" component={ProfilScreen} options={{ tabBarLabel: "Profil" }} />
       {isAdmin && (
-        <Tab.Screen
-          name="Admin"
-          component={AdminScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon icon="🛡️" label="Admin" focused={focused} />
-            ),
-          }}
-        />
+        <Tab.Screen name="Admin" component={AdminScreen} options={{ tabBarLabel: "Admin" }} />
       )}
     </Tab.Navigator>
   );
 }
-
-const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: COLORS.bg,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    height: Platform.OS === "ios" ? 90 : 70,
-    paddingBottom: Platform.OS === "ios" ? 20 : 8,
-    paddingTop: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  tabItem: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    minWidth: 56,
-  },
-  tabItemFocused: {
-    backgroundColor: "#E8F5E9",
-  },
-  tabEmoji: {
-    fontSize: 22,
-    opacity: 0.6,
-  },
-  tabEmojiFocused: {
-    opacity: 1,
-  },
-  tabLabel: {
-    fontSize: 10,
-    color: COLORS.inactive,
-    marginTop: 2,
-    fontWeight: "600",
-  },
-  tabLabelFocused: {
-    color: COLORS.primary,
-    fontWeight: "800",
-  },
-});

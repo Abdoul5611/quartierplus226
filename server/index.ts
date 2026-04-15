@@ -483,6 +483,79 @@ app.post("/api/messages", async (req, res) => {
   }
 });
 
+// ─── DM : liste des conversations d'un utilisateur ───────────────────
+app.get("/api/dm/conversations/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: "userId requis" });
+
+    // Trouver tous les canaux DM où l'utilisateur a envoyé au moins un message
+    const sentChannels = await db
+      .selectDistinct({ channel: messages.channel })
+      .from(messages)
+      .where(drizzleSql`${messages.channel} LIKE ${'dm:%'} AND ${messages.senderId} = ${userId}`);
+
+    // Trouver aussi les canaux DM où le canal contient l'userId (reçus)
+    const receivedChannels = await db
+      .selectDistinct({ channel: messages.channel })
+      .from(messages)
+      .where(drizzleSql`${messages.channel} LIKE ${'dm:' + userId + ':%'} OR ${messages.channel} LIKE ${'dm:%:' + userId}`);
+
+    const allChannels = Array.from(
+      new Set([...sentChannels, ...receivedChannels].map((r) => r.channel))
+    );
+
+    if (!allChannels.length) return res.json([]);
+
+    // Pour chaque canal, récupérer le dernier message + infos du partenaire
+    const conversations = await Promise.all(
+      allChannels.map(async (channel) => {
+        const [latest] = await db
+          .select()
+          .from(messages)
+          .where(eq(messages.channel, channel))
+          .orderBy(desc(messages.createdAt))
+          .limit(1);
+
+        const [partnerMsg] = await db
+          .select()
+          .from(messages)
+          .where(drizzleSql`${messages.channel} = ${channel} AND ${messages.senderId} != ${userId}`)
+          .orderBy(desc(messages.createdAt))
+          .limit(1);
+
+        if (!latest) return null;
+
+        const partnerParts = channel.replace("dm:", "").split(":");
+        const partnerId = partnerParts.find((p) => p !== userId) || partnerMsg?.senderId || "";
+
+        return {
+          channel,
+          partner_id: partnerId,
+          partner_name: partnerMsg?.senderName || "Voisin",
+          partner_avatar: partnerMsg?.senderAvatar || null,
+          last_message:
+            latest.messageType === "audio" ? "🎵 Message vocal" : latest.text || "",
+          last_message_type: latest.messageType,
+          last_message_at: latest.createdAt,
+          last_sender_id: latest.senderId,
+        };
+      })
+    );
+
+    const result = conversations
+      .filter(Boolean)
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
+      );
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── Profile update (POST alias) ─────────────────────────────────────
 app.post("/api/profile/update", async (req, res) => {
   try {

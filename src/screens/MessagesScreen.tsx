@@ -388,8 +388,17 @@ export default function MessagesScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Messages</Text>
-          <Text style={styles.headerSub}>Discussions du quartier</Text>
+          <Text style={styles.headerSub}>{CHANNELS.length} discussions du quartier</Text>
         </View>
+
+        {!firebaseUser && (
+          <View style={styles.loginBanner}>
+            <Text style={styles.loginBannerText}>
+              🔒 Connectez-vous dans l'onglet Profil pour envoyer des messages
+            </Text>
+          </View>
+        )}
+
         <FlatList
           data={CHANNELS}
           keyExtractor={(c) => c.id}
@@ -399,7 +408,7 @@ export default function MessagesScreen() {
               <TouchableOpacity
                 style={styles.waRow}
                 onPress={() => setActiveChannel(item)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
               >
                 <View style={styles.waAvatar}>
                   <Text style={styles.waAvatarText}>{item.icon}</Text>
@@ -413,23 +422,23 @@ export default function MessagesScreen() {
                   </View>
                   <Text style={styles.waPreview} numberOfLines={1}>
                     {preview
-                      ? `${preview.sender}: ${preview.text}`
+                      ? `${preview.sender} : ${preview.text}`
                       : item.description}
                   </Text>
                 </View>
+                <Text style={styles.waChevron}>›</Text>
               </TouchableOpacity>
             );
           }}
           ItemSeparatorComponent={() => <View style={styles.waSeparator} />}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingBottom: 120 }}
+          ListEmptyComponent={
+            <View style={styles.emptyList}>
+              <Text style={styles.emptyListIcon}>💬</Text>
+              <Text style={styles.emptyListText}>Aucun canal disponible</Text>
+            </View>
+          }
         />
-        {!firebaseUser && (
-          <View style={styles.loginBanner}>
-            <Text style={styles.loginBannerText}>
-              🔒 Connectez-vous dans l'onglet Profil pour envoyer des messages
-            </Text>
-          </View>
-        )}
       </View>
     );
   }
@@ -566,6 +575,10 @@ const styles = StyleSheet.create({
   waTime: { fontSize: 11, color: COLORS.muted, marginLeft: 8 },
   waPreview: { fontSize: 13, color: COLORS.muted, flex: 1 },
   waSeparator: { height: 1, backgroundColor: COLORS.border, marginLeft: 84 },
+  waChevron: { fontSize: 22, color: COLORS.muted, marginLeft: 8 },
+  emptyList: { alignItems: "center", paddingTop: 80 },
+  emptyListIcon: { fontSize: 48, marginBottom: 12 },
+  emptyListText: { fontSize: 15, color: COLORS.muted, fontWeight: "600" },
   // ─── (Legacy - kept for possible reuse) ──────────────────────────────────
   channelCard: {
     backgroundColor: COLORS.card, borderRadius: 16, padding: 16,

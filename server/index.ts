@@ -1389,8 +1389,12 @@ app.get("/", (_req, res) => {
   res.sendFile(path.join(WEB_DIST, "index.html"));
 });
 
-// Fichiers JS/CSS/images : cachés par hash, servis normalement
-app.use(express.static(WEB_DIST, { maxAge: "1d", etag: true }));
+// Fichiers JS/CSS/images : no-cache pour garantir la fraîcheur à chaque build
+app.use(express.static(WEB_DIST, { maxAge: 0, etag: false, lastModified: false, setHeaders: (res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+}}));
 
 // SPA fallback : toutes les routes inconnues renvoient index.html sans cache
 app.use((_req, res) => {

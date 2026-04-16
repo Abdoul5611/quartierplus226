@@ -7,7 +7,6 @@ import CarteScreen from "../screens/CarteScreen";
 import MarcheScreen from "../screens/MarcheScreen";
 import MessagesScreen from "../screens/MessagesScreen";
 import ProfilScreen from "../screens/ProfilScreen";
-import WalletScreen from "../screens/WalletScreen";
 import AdminScreen from "../screens/AdminScreen";
 import { useAuth } from "../context/AuthContext";
 
@@ -26,7 +25,6 @@ const TAB_ICONS: Record<string, { active: IoniconName; inactive: IoniconName }> 
   Accueil: { active: "home", inactive: "home-outline" },
   Carte: { active: "map", inactive: "map-outline" },
   "Marché": { active: "storefront", inactive: "storefront-outline" },
-  Portefeuille: { active: "wallet", inactive: "wallet-outline" },
   Messages: { active: "chatbubbles", inactive: "chatbubbles-outline" },
   Profil: { active: "person", inactive: "person-outline" },
   Admin: { active: "shield", inactive: "shield-outline" },
@@ -90,7 +88,6 @@ export default function TabNavigator() {
       <Tab.Screen name="Accueil" component={AccueilScreen} options={{ tabBarLabel: "Accueil" }} />
       <Tab.Screen name="Carte" component={CarteScreen} options={{ tabBarLabel: "Carte" }} />
       <Tab.Screen name="Marché" component={MarcheScreen} options={{ tabBarLabel: "Marché" }} />
-      <Tab.Screen name="Portefeuille" component={WalletScreen} options={{ tabBarLabel: "Wallet" }} />
       <Tab.Screen name="Messages" component={MessagesScreen} options={{ tabBarLabel: "Messages" }} />
       <Tab.Screen name="Profil" component={ProfilScreen} options={{ tabBarLabel: "Profil" }} />
       {isAdmin && (

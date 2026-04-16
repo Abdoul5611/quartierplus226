@@ -12,6 +12,9 @@ trap cleanup EXIT INT TERM
 pkill -f "dist/server/index.js" 2>/dev/null || true
 sleep 1
 
+echo "Build du frontend web Expo..."
+npx expo export --platform web --output-dir web-dist --clear 2>&1 | tail -5
+
 echo "Compilation du serveur TypeScript..."
 ./node_modules/.bin/tsc -p tsconfig.server.json
 

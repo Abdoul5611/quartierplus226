@@ -22,7 +22,7 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 ```
 ├── App.tsx              # Point d'entrée Expo
 ├── app.json             # Configuration Expo
-├── start.sh             # Script de démarrage (Expo + serveur proxy)
+├── start.sh             # Script de démarrage (build web + serveur)
 ├── tsconfig.server.json # Config TypeScript pour le serveur
 ├── drizzle.config.ts    # Configuration Drizzle
 ├── db/
@@ -31,7 +31,7 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 ├── lib/
 │   └── cloudinary.ts    # Configuration et helpers Cloudinary
 └── server/
-    └── index.ts         # Serveur Express + proxy vers Expo port 8081
+    └── index.ts         # Serveur Express + API REST
 ```
 
 ## Emails importants
@@ -39,11 +39,38 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - **Admin Dashboard** : `administrateurquartierplus@gmail.com`, `quartierplussanna@gmail.com`
 - **Support** : `abdoulquartierplus@gmail.com`
 
+## Système Financier Unifié (Avril 2026)
+
+### Portefeuille unique (wallet_balance en FCFA)
+- **Un seul portefeuille** dans le Profil gère tout l'argent (Retraits, Dépôts, futurs Jeux).
+- L'ancien onglet "Portefeuille" (points vidéo séparé) a été **supprimé**.
+- Navigation : Accueil, Carte, Marché, Messages, Profil (5 onglets).
+
+### Conversion Publicités → FCFA
+- Regarder une vidéo AdMob → **+2 FCFA** directement dans wallet_balance.
+- Règle : 20 pts × 0.1 FCFA/pt = 2 FCFA/vidéo. Max 15 vidéos/jour = 30 FCFA/jour.
+- Chaque gain enregistré dans `transactions` (type: `video_reward`).
+- Anti-fraude : limite journalière + délai 30s entre vidéos + ban auto si abus.
+
+### Bouton vidéo fonctionnel (RewardedVideoButton)
+- Simulation : countdown 5 secondes → appel API → crédit immédiat dans wallet.
+- Fonctionne sur web (`.web.tsx`) et mobile (même logique).
+- Accessible depuis le wallet modal dans le Profil.
+
+### Crédit insuffisant pour les jeux
+- Si solde < 500 FCFA, message "Regarder une vidéo pour gagner du crédit" s'affiche.
+- Bouton vidéo toujours visible dans le wallet modal.
+
+### Sécurité
+- Toute transaction (pub, dépôt, retrait) → enregistrée dans table `transactions`.
+- Retraits → table `wallet_transactions` en attente admin + alerte console.
+- Minimum retrait : 1 000 FCFA.
+
 ## Publicité
 
-- Les composants `src/components/AdBanner.tsx` et `src/components/RewardedVideoButton.tsx` affichent actuellement des placeholders.
-- Le package natif `react-native-google-mobile-ads` a été retiré temporairement pour éviter les erreurs Android `compileReleaseKotlin` tant que les publicités réelles ne sont pas activées.
-- Avant d’activer AdMob, réinstaller le package, ajouter son plugin Expo avec les App IDs Android/iOS, puis refaire un build Android propre.
+- `RewardedVideoButton` : simulation web (countdown 5s) + future intégration AdMob mobile.
+- Le package natif `react-native-google-mobile-ads` n'est pas encore installé.
+- Avant d'activer AdMob réel : réinstaller le package, ajouter son plugin Expo avec les App IDs Android/iOS, refaire un build Android propre.
 
 ## Boost Annonce (FedaPay)
 
@@ -61,17 +88,16 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - **Base de données** : Table `help_requests` créée avec le bon schéma
 - **api.ts** : Utilise des URLs relatives sur web (vide), domaine mis à jour pour le natif
 - **metro.config.js** : `allowedHosts: "all"` ajouté pour compatibilité proxy Replit
-- **Domaine actuel** : `20949130-e227-47cc-8ac4-6d0a17b56e8a-00-2uucs99lk5vth.picard.replit.dev`
-- **Préparation APK Android** : profil EAS `preview` configuré en `buildType: "apk"` ; nettoyage `.expo`/`web-build` effectué ; imports `expo-notifications`, `expo-location`, `expo-file-system` et `expo-media-library` chargés uniquement côté natif/à l’usage pour éviter les blocages Web `requireOptionalNativeModule` sans casser l’APK.
+- **start.sh** : Build Expo web automatique avant démarrage du serveur
 
 ## Tables de base de données
 
-- `users` - Utilisateurs (Firebase UID, profil, quartier, points, wallet)
+- `users` - Utilisateurs (Firebase UID, profil, quartier, points, wallet_balance)
 - `posts` - Publications du fil d'actualité
 - `lending_items` - Objets à prêter/louer
 - `service_missions` - Missions de service entre voisins
 - `premium_subscriptions` - Abonnements Stripe
-- `wallet_transactions` - Transactions du portefeuille
+- `wallet_transactions` - Retraits en attente (admin)
 - `sponsored_posts` - Publicités sponsorisées
 - `referral_bonuses` - Bonus de parrainage
 - `publications` - Publications QuartierPlus (avec audio)
@@ -79,17 +105,19 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - `help_requests` - Demandes d'aide/support (admin)
 - `messages` - Messages dans les canaux
 - `votes` - Votes sur les sondages
-- `transactions` - Transactions financières
-- `video_views` - Vues de vidéos (pour points)
+- `transactions` - Toutes les transactions financières (video_reward, withdrawal, boost, etc.)
+- `video_views` - Vues de vidéos (anti-fraude)
 
-## API Routes
+## API Routes Financières
 
-- `GET /api/health` - Vérifie la connexion à la base de données
-- `GET /api/users` - Liste des utilisateurs
-- `GET /api/publications` - Publications
-- `GET /api/marche` - Produits du marché
-- `POST /api/upload/image` - Upload image vers Cloudinary (base64)
-- `POST /api/upload/audio` - Upload audio vers Cloudinary (base64)
+- `POST /api/rewards/video-complete` — Crédite +2 FCFA dans wallet_balance après une vidéo
+- `GET /api/rewards/status/:uid` — Statut vidéo du jour (vues, solde, limite)
+- `POST /api/rewards/withdraw` — Demande de retrait depuis le wallet vidéo
+- `GET /api/rewards/history/:uid` — Historique des vidéos et retraits
+- `POST /api/wallet/pay-course` — Paiement de cours (wallet FCFA)
+- `POST /api/wallet/withdraw` — Retrait avec commission 10%
+- `GET /api/wallet/transactions/:uid` — Historique transactions
+- `POST /api/payment/mm/initiate` — Initier un dépôt Mobile Money (FedaPay)
 
 ## Secrets requis
 
@@ -104,6 +132,6 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 ## Scripts
 
 - `npm start` / `npm run web` - Lance Expo directement
-- `bash start.sh` - Lance Expo (8081) + serveur proxy (5000) ensemble
+- `bash start.sh` - Build web Expo + serveur Express (5000)
 - `npm run db:generate` - Génère les migrations Drizzle
 - `npm run db:push` - Pousse le schéma vers Neon

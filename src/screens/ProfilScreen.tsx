@@ -23,6 +23,7 @@ import { useAuth } from "../context/AuthContext";
 import { api, Post, Transaction, BASE_URL } from "../services/api";
 import TwoFactorSetup from "../components/TwoFactorSetup";
 import MobileMoneyModal from "../components/MobileMoneyModal";
+import RewardedVideoButton from "../components/RewardedVideoButton";
 
 const COLORS = {
   primary: "#2E7D32",
@@ -67,6 +68,8 @@ export default function ProfilScreen() {
   const [adminData, setAdminData] = useState<any>(null);
   const [adminLoading, setAdminLoading] = useState(false);
   const [twoFAModal, setTwoFAModal] = useState(false);
+  const [todayViews, setTodayViews] = useState(0);
+  const [maxDaily, setMaxDaily] = useState(15);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -468,8 +471,13 @@ export default function ProfilScreen() {
             setWalletModal(true);
             setTxLoading(true);
             try {
-              const data = await api.getTransactions(firebaseUser.uid);
+              const [data, rewardStatus] = await Promise.all([
+                api.getTransactions(firebaseUser.uid),
+                api.getRewardStatus(firebaseUser.uid),
+              ]);
               setTransactions(data);
+              setTodayViews(rewardStatus.todayViews);
+              setMaxDaily(rewardStatus.maxDaily);
             } catch { setTransactions([]); }
             finally { setTxLoading(false); }
           }},
@@ -850,51 +858,81 @@ export default function ProfilScreen() {
                 <Text style={styles.walletClose}>✕</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.walletBalanceBox}>
-              <Text style={styles.walletBalanceLabel}>Solde disponible</Text>
-              <Text style={styles.walletBalanceAmount}>{(dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA</Text>
-              <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-                <TouchableOpacity style={[styles.walletWithdrawBtn, { flex: 1 }]} onPress={() => setMmModal(true)}>
-                  <Text style={styles.walletWithdrawBtnText}>📱 Recharger</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.walletWithdrawBtn, { flex: 1, backgroundColor: "#F44336" }]} onPress={() => { setWithdrawModal(true); }}>
-                  <Text style={styles.walletWithdrawBtnText}>🏦 Retrait</Text>
-                </TouchableOpacity>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.walletBalanceBox}>
+                <Text style={styles.walletBalanceLabel}>Solde disponible</Text>
+                <Text style={styles.walletBalanceAmount}>{(dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA</Text>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                  <TouchableOpacity style={[styles.walletWithdrawBtn, { flex: 1 }]} onPress={() => setMmModal(true)}>
+                    <Text style={styles.walletWithdrawBtnText}>📱 Recharger</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.walletWithdrawBtn, { flex: 1, backgroundColor: "#F44336" }]} onPress={() => { setWithdrawModal(true); }}>
+                    <Text style={styles.walletWithdrawBtnText}>🏦 Retrait</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.walletCommissionNote}>Rechargez par Orange Money, Wave, Moov & plus · Retrait : commission 10%</Text>
               </View>
-              <Text style={styles.walletCommissionNote}>Rechargez par Orange Money, Wave, Moov & plus · Retrait : commission 10%</Text>
-            </View>
-            <Text style={styles.walletTxTitle}>Historique des transactions</Text>
-            {txLoading ? (
-              <ActivityIndicator color={COLORS.primary} style={{ marginTop: 20 }} />
-            ) : transactions.length === 0 ? (
-              <Text style={styles.walletEmpty}>Aucune transaction pour le moment</Text>
-            ) : (
-              <ScrollView style={styles.walletTxList}>
-                {transactions.map((tx) => {
-                  const isDebit = tx.from_uid === firebaseUser?.uid;
-                  const typeLabel: Record<string, string> = {
-                    course_payment: "Cours payé",
-                    prime_transfer: "Prime de partage",
-                    withdrawal: "Retrait",
-                    commission: "Commission admin",
-                    mobile_money_deposit: "Recharge Mobile Money",
-                    boost: "Boost publicitaire",
-                  };
-                  return (
-                    <View key={tx.id} style={styles.txRow}>
-                      <View style={styles.txLeft}>
-                        <Text style={styles.txType}>{typeLabel[tx.type] || tx.type}</Text>
-                        <Text style={styles.txDesc} numberOfLines={1}>{tx.description || ""}</Text>
-                        <Text style={styles.txDate}>{new Date(tx.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}</Text>
+
+              <View style={styles.walletVideoSection}>
+                <Text style={styles.walletVideoTitle}>📺 Gagner des FCFA en regardant des pubs</Text>
+                <Text style={styles.walletVideoSub}>
+                  {todayViews}/{maxDaily} vidéos aujourd'hui · +2 FCFA par vidéo · max {maxDaily * 2} FCFA/jour
+                </Text>
+                {firebaseUser && (
+                  <RewardedVideoButton
+                    todayViews={todayViews}
+                    maxDaily={maxDaily}
+                    userUid={firebaseUser.uid}
+                    onPointsEarned={(newBalance) => {
+                      setTodayViews((v) => v + 1);
+                      refreshUser();
+                    }}
+                  />
+                )}
+                {(dbUser?.wallet_balance ?? 0) < 500 && todayViews < maxDaily && (
+                  <View style={styles.lowCreditHint}>
+                    <Text style={styles.lowCreditIcon}>💡</Text>
+                    <Text style={styles.lowCreditText}>Crédit insuffisant pour jouer ? Regardez des vidéos pour recharger votre portefeuille !</Text>
+                  </View>
+                )}
+              </View>
+
+              <Text style={styles.walletTxTitle}>Historique des transactions</Text>
+              {txLoading ? (
+                <ActivityIndicator color={COLORS.primary} style={{ marginTop: 20 }} />
+              ) : transactions.length === 0 ? (
+                <Text style={styles.walletEmpty}>Aucune transaction pour le moment</Text>
+              ) : (
+                <View>
+                  {transactions.map((tx) => {
+                    const isDebit = tx.from_uid === firebaseUser?.uid && tx.type !== "video_reward";
+                    const typeLabel: Record<string, string> = {
+                      video_reward: "Pub regardée",
+                      course_payment: "Cours payé",
+                      prime_transfer: "Prime de partage",
+                      withdrawal: "Retrait",
+                      withdrawal_request: "Retrait (en attente)",
+                      commission: "Commission admin",
+                      mobile_money_deposit: "Recharge Mobile Money",
+                      boost: "Boost publicitaire",
+                    };
+                    const isCredit = tx.type === "video_reward" || tx.type === "mobile_money_deposit";
+                    return (
+                      <View key={tx.id} style={styles.txRow}>
+                        <View style={styles.txLeft}>
+                          <Text style={styles.txType}>{typeLabel[tx.type] || tx.type}</Text>
+                          <Text style={styles.txDesc} numberOfLines={1}>{tx.description || ""}</Text>
+                          <Text style={styles.txDate}>{new Date(tx.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}</Text>
+                        </View>
+                        <Text style={[styles.txAmount, isCredit ? styles.txCredit : styles.txDebit]}>
+                          {isCredit ? "+" : "-"}{(tx.amount).toLocaleString("fr-FR")} FCFA
+                        </Text>
                       </View>
-                      <Text style={[styles.txAmount, isDebit ? styles.txDebit : styles.txCredit]}>
-                        {isDebit ? "-" : "+"}{(tx.amount).toLocaleString("fr-FR")} FCFA
-                      </Text>
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            )}
+                    );
+                  })}
+                </View>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1174,9 +1212,15 @@ const styles = StyleSheet.create({
   walletWithdrawBtn: { backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 12, paddingVertical: 10, paddingHorizontal: 20, marginBottom: 8 },
   walletWithdrawBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   walletCommissionNote: { color: "rgba(255,255,255,0.7)", fontSize: 11, textAlign: "center" },
-  walletTxTitle: { fontSize: 16, fontWeight: "700", color: COLORS.text, marginBottom: 12 },
+  walletTxTitle: { fontSize: 16, fontWeight: "700", color: COLORS.text, marginBottom: 12, marginTop: 16 },
   walletEmpty: { color: COLORS.muted, textAlign: "center", fontSize: 14, marginTop: 20, marginBottom: 20 },
   walletTxList: { maxHeight: 320 },
+  walletVideoSection: { backgroundColor: "#F0FFF4", borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "#A5D6A7" },
+  walletVideoTitle: { fontSize: 14, fontWeight: "800", color: "#2E7D32", marginBottom: 4 },
+  walletVideoSub: { fontSize: 12, color: "#6C757D", marginBottom: 12, lineHeight: 18 },
+  lowCreditHint: { flexDirection: "row", alignItems: "flex-start", backgroundColor: "#FFF8E1", borderRadius: 10, padding: 10, marginTop: 10, gap: 8, borderWidth: 1, borderColor: "#FFE082" },
+  lowCreditIcon: { fontSize: 18 },
+  lowCreditText: { flex: 1, fontSize: 12, color: "#5D4037", lineHeight: 18 },
   txRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   txLeft: { flex: 1, marginRight: 12 },
   txType: { fontSize: 13, fontWeight: "700", color: COLORS.text },

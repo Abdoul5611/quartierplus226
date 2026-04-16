@@ -1525,6 +1525,50 @@ app.get("/api/loto/stats", async (_req, res) => {
 
 const COURSE_ADMIN_PERCENT = 0.20;
 
+const COUREURS_AUTO = [
+  { id: "c1", name: "Kofi le Rapide", emoji: "🏃" },
+  { id: "c2", name: "Awa la Gazelle", emoji: "💨" },
+  { id: "c3", name: "Moussa l'Éclair", emoji: "⚡" },
+  { id: "c4", name: "Fatou la Tornade", emoji: "🌪️" },
+  { id: "c5", name: "Ibra le Lion", emoji: "🦁" },
+];
+
+async function autoCreateCourseIfNone() {
+  try {
+    const [active] = await db.select({ id: courses.id }).from(courses)
+      .where(drizzleSql`status IN ('open', 'running')`)
+      .limit(1);
+    if (active) return;
+
+    const [last] = await db.select({ carryoverAmount: courses.carryoverAmount })
+      .from(courses)
+      .where(eq(courses.status, "finished"))
+      .orderBy(desc(courses.finishedAt))
+      .limit(1);
+
+    const carryover = last?.carryoverAmount ?? 0;
+
+    await db.insert(courses).values({
+      titre: "Course de Rue",
+      coureurs: COUREURS_AUTO as any,
+      status: "open",
+      carryoverAmount: carryover,
+      totalMises: 0,
+      cagnotteAmount: 0,
+      adminCut: 0,
+    } as any);
+
+    console.log(`[Course] Nouvelle course créée automatiquement${carryover > 0 ? ` (report: ${carryover} FCFA)` : ""}`);
+  } catch (e) {
+    console.error("[Course] Erreur création auto:", e);
+  }
+}
+
+setTimeout(() => {
+  autoCreateCourseIfNone();
+  setInterval(autoCreateCourseIfNone, 5 * 60 * 1000);
+}, 5000);
+
 // GET /api/courses/active
 app.get("/api/courses/active", async (_req, res) => {
   try {

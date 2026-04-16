@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { db } from "../db";
-import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests } from "../db/schema";
+import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests, lotoTickets } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 import { verify as totpVerify, generate as totpGenerate, generateSecret } from "otplib";
@@ -1370,6 +1370,118 @@ app.post("/api/upload/profile", async (req, res) => {
       await db.update(users).set({ profilePhoto: result.secure_url, avatar: result.secure_url } as any).where(eq(users.firebaseUid, user_id));
     }
     res.json({ url: result.secure_url, public_id: result.public_id });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Loto 5/30 ────────────────────────────────────────────────────────
+const LOTO_TICKET_PRICE = 100;
+const LOTO_PRIZES: Record<number, number> = { 3: 300, 4: 1500, 5: 50000 };
+const LOTO_NUMBERS_TOTAL = 30;
+const LOTO_PICK_COUNT = 5;
+
+function drawLotoNumbers(): number[] {
+  const pool = Array.from({ length: LOTO_NUMBERS_TOTAL }, (_, i) => i + 1);
+  const drawn: number[] = [];
+  for (let i = 0; i < LOTO_PICK_COUNT; i++) {
+    const idx = Math.floor(Math.random() * pool.length);
+    drawn.push(pool[idx]);
+    pool.splice(idx, 1);
+  }
+  return drawn.sort((a, b) => a - b);
+}
+
+app.post("/api/loto/buy", async (req, res) => {
+  try {
+    const { userUid, chosenNumbers } = req.body;
+    if (!userUid || !Array.isArray(chosenNumbers)) {
+      return res.status(400).json({ error: "userUid et chosenNumbers requis" });
+    }
+    if (chosenNumbers.length !== LOTO_PICK_COUNT) {
+      return res.status(400).json({ error: `Vous devez choisir exactement ${LOTO_PICK_COUNT} numéros` });
+    }
+    const unique = new Set(chosenNumbers);
+    if (unique.size !== LOTO_PICK_COUNT) {
+      return res.status(400).json({ error: "Les numéros doivent être uniques" });
+    }
+    if (chosenNumbers.some((n: number) => n < 1 || n > LOTO_NUMBERS_TOTAL)) {
+      return res.status(400).json({ error: `Les numéros doivent être entre 1 et ${LOTO_NUMBERS_TOTAL}` });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, userUid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+    if (user.isBanned) return res.status(403).json({ error: "Compte suspendu" });
+    if ((user.walletBalance ?? 0) < LOTO_TICKET_PRICE) {
+      return res.status(400).json({ error: `Solde insuffisant. Il vous faut au moins ${LOTO_TICKET_PRICE} FCFA.` });
+    }
+
+    const drawnNumbers = drawLotoNumbers();
+    const chosenSet = new Set(chosenNumbers);
+    const matchedCount = drawnNumbers.filter((n) => chosenSet.has(n)).length;
+    const prizeAmount = LOTO_PRIZES[matchedCount] ?? 0;
+
+    const newBalance = (user.walletBalance ?? 0) - LOTO_TICKET_PRICE + prizeAmount;
+    await db.update(users)
+      .set({ walletBalance: newBalance } as any)
+      .where(eq(users.firebaseUid, userUid));
+
+    await logTransaction("loto_bet", userUid, null, LOTO_TICKET_PRICE, 0,
+      `Ticket Loto 5/30 — numéros: ${chosenNumbers.join(",")}`, undefined);
+
+    if (prizeAmount > 0) {
+      const label = matchedCount === 5 ? "🎉 JACKPOT Loto 5/30 !" : `Gain Loto 5/30 (${matchedCount} bons numéros)`;
+      await logTransaction("loto_win", "loto_system", userUid, prizeAmount, 0, label, undefined);
+    }
+
+    const [ticket] = await db.insert(lotoTickets).values({
+      userUid,
+      chosenNumbers: chosenNumbers as any,
+      drawnNumbers: drawnNumbers as any,
+      matchedCount,
+      prizeAmount,
+      status: "completed",
+    }).returning();
+
+    res.json(toSnake({
+      success: true,
+      ticket: toSnake(ticket),
+      drawnNumbers,
+      matchedCount,
+      prizeAmount,
+      newBalance,
+      isJackpot: matchedCount === 5,
+    }));
+  } catch (err) {
+    console.error("[Loto] buy error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/loto/history/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const tickets = await db.select().from(lotoTickets)
+      .where(eq(lotoTickets.userUid, uid))
+      .orderBy(desc(lotoTickets.createdAt))
+      .limit(30);
+    res.json(toSnake(tickets));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/loto/stats", async (_req, res) => {
+  try {
+    const total = await db.select({ count: drizzleSql<number>`count(*)` }).from(lotoTickets);
+    const wins = await db.select({ count: drizzleSql<number>`count(*)`, total: drizzleSql<number>`sum(prize_amount)` })
+      .from(lotoTickets)
+      .where(drizzleSql`matched_count >= 3`);
+    res.json({
+      total_tickets: Number(total[0]?.count ?? 0),
+      total_wins: Number(wins[0]?.count ?? 0),
+      total_prizes_paid: Number(wins[0]?.total ?? 0),
+    });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

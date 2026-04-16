@@ -241,8 +241,22 @@ export const votes = pgTable("votes", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const lotoTickets = pgTable("loto_tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userUid: text("user_uid").notNull(),
+  chosenNumbers: jsonb("chosen_numbers").notNull(),
+  drawnNumbers: jsonb("drawn_numbers").notNull(),
+  matchedCount: integer("matched_count").notNull().default(0),
+  prizeAmount: integer("prize_amount").notNull().default(0),
+  status: text("status").notNull().default("completed"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export type Vote = typeof votes.$inferSelect;
 export type NewVote = typeof votes.$inferInsert;
+
+export type LotoTicket = typeof lotoTickets.$inferSelect;
+export type NewLotoTicket = typeof lotoTickets.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

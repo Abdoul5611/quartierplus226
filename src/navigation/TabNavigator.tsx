@@ -1,5 +1,6 @@
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Platform, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AccueilScreen from "../screens/AccueilScreen";
@@ -8,9 +9,21 @@ import MarcheScreen from "../screens/MarcheScreen";
 import MessagesScreen from "../screens/MessagesScreen";
 import ProfilScreen from "../screens/ProfilScreen";
 import AdminScreen from "../screens/AdminScreen";
+import JeuxScreen from "../screens/JeuxScreen";
+import LotoScreen from "../screens/LotoScreen";
 import { useAuth } from "../context/AuthContext";
 
 const Tab = createBottomTabNavigator();
+const JeuxStack = createNativeStackNavigator();
+
+function JeuxNavigator() {
+  return (
+    <JeuxStack.Navigator screenOptions={{ headerShown: false }}>
+      <JeuxStack.Screen name="JeuxHub" component={JeuxScreen} />
+      <JeuxStack.Screen name="Loto" component={LotoScreen} />
+    </JeuxStack.Navigator>
+  );
+}
 
 const COLORS = {
   primary: "#2E7D32",
@@ -25,6 +38,7 @@ const TAB_ICONS: Record<string, { active: IoniconName; inactive: IoniconName }> 
   Accueil: { active: "home", inactive: "home-outline" },
   Carte: { active: "map", inactive: "map-outline" },
   "Marché": { active: "storefront", inactive: "storefront-outline" },
+  Jeux: { active: "game-controller", inactive: "game-controller-outline" },
   Messages: { active: "chatbubbles", inactive: "chatbubbles-outline" },
   Profil: { active: "person", inactive: "person-outline" },
   Admin: { active: "shield", inactive: "shield-outline" },
@@ -58,7 +72,7 @@ export default function TabNavigator() {
           fontWeight: "600",
           marginTop: 2,
         },
-        tabBarIcon: ({ focused, color, size }) => {
+        tabBarIcon: ({ focused, color }) => {
           const icons = TAB_ICONS[route.name];
           const iconName = focused ? icons?.active : icons?.inactive;
           return (
@@ -88,6 +102,7 @@ export default function TabNavigator() {
       <Tab.Screen name="Accueil" component={AccueilScreen} options={{ tabBarLabel: "Accueil" }} />
       <Tab.Screen name="Carte" component={CarteScreen} options={{ tabBarLabel: "Carte" }} />
       <Tab.Screen name="Marché" component={MarcheScreen} options={{ tabBarLabel: "Marché" }} />
+      <Tab.Screen name="Jeux" component={JeuxNavigator} options={{ tabBarLabel: "Jeux" }} />
       <Tab.Screen name="Messages" component={MessagesScreen} options={{ tabBarLabel: "Messages" }} />
       <Tab.Screen name="Profil" component={ProfilScreen} options={{ tabBarLabel: "Profil" }} />
       {isAdmin && (

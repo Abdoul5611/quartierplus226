@@ -113,6 +113,17 @@ export interface User {
   is_banned?: boolean;
 }
 
+export interface LotoTicket {
+  id: string;
+  user_uid: string;
+  chosen_numbers: number[];
+  drawn_numbers: number[];
+  matched_count: number;
+  prize_amount: number;
+  status: string;
+  created_at: string;
+}
+
 export interface WithdrawalRequest {
   id: string;
   user_id: string;
@@ -319,6 +330,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  buyLotoTicket: (userUid: string, chosenNumbers: number[]) =>
+    fetchAPI<{
+      success: boolean;
+      ticket: LotoTicket;
+      drawnNumbers: number[];
+      matchedCount: number;
+      prizeAmount: number;
+      newBalance: number;
+      isJackpot: boolean;
+    }>("/api/loto/buy", {
+      method: "POST",
+      body: JSON.stringify({ userUid, chosenNumbers }),
+    }),
+
+  getLotoHistory: (uid: string) =>
+    fetchAPI<LotoTicket[]>(`/api/loto/history/${uid}`),
+
+  getLotoStats: () =>
+    fetchAPI<{ total_tickets: number; total_wins: number; total_prizes_paid: number }>("/api/loto/stats"),
 
   setup2FA: (firebaseUid: string) =>
     fetchAPI<{ secret: string; otpauthUrl: string }>("/api/auth/2fa/setup", {

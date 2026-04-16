@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   FlatList,
   Alert,
   Platform,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
@@ -60,9 +61,19 @@ export default function LotoScreen({ navigation }: any) {
   const [history, setHistory] = useState<LotoTicket[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [animating, setAnimating] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const confirmOpacity = useRef(new Animated.Value(0)).current;
 
   const balance = dbUser?.wallet_balance ?? 0;
+
+  const showConfirmToast = () => {
+    setShowConfirm(true);
+    Animated.sequence([
+      Animated.timing(confirmOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.delay(1600),
+      Animated.timing(confirmOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start(() => setShowConfirm(false));
+  };
 
   const loadHistory = useCallback(async () => {
     if (!user?.uid) return;
@@ -108,11 +119,15 @@ export default function LotoScreen({ navigation }: any) {
     }
 
     setLoading(true);
-    setAnimating(true);
     try {
       const res = await api.buyLotoTicket(user.uid, selected);
       await refreshUser?.();
       await loadHistory();
+
+      showConfirmToast();
+
+      await new Promise((r) => setTimeout(r, 2200));
+
       setResult({
         drawnNumbers: res.drawnNumbers,
         matchedCount: res.matched_count ?? res.matchedCount,
@@ -125,7 +140,6 @@ export default function LotoScreen({ navigation }: any) {
       Alert.alert("Erreur", err?.message || "Une erreur est survenue");
     } finally {
       setLoading(false);
-      setAnimating(false);
     }
   };
 
@@ -307,31 +321,56 @@ export default function LotoScreen({ navigation }: any) {
           <TouchableOpacity
             style={[
               styles.buyBtn,
-              (selected.length < PICK || loading || balance < TICKET_PRICE) && styles.buyBtnDisabled,
+              selected.length === PICK && balance >= TICKET_PRICE && !loading
+                ? styles.buyBtnActive
+                : styles.buyBtnDisabled,
             ]}
             onPress={handleBuy}
             disabled={selected.length < PICK || loading || balance < TICKET_PRICE}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <View style={styles.buyInner}>
+                <ActivityIndicator color="#fff" size="small" />
+                <Text style={styles.buyText}>Tirage en cours…</Text>
+              </View>
             ) : (
-              <>
-                <Ionicons name="ticket-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.buyText}>
-                  {balance < TICKET_PRICE
-                    ? `Solde insuffisant (min. ${TICKET_PRICE} FCFA)`
-                    : selected.length < PICK
-                    ? `Choisissez encore ${PICK - selected.length} numéro(s)`
-                    : `Valider mon ticket — ${TICKET_PRICE} FCFA`}
-                </Text>
-              </>
+              <View style={styles.buyInner}>
+                <Ionicons name="ticket" size={22} color="#fff" />
+                <View style={styles.buyTextBlock}>
+                  <Text style={styles.buyText}>
+                    {balance < TICKET_PRICE
+                      ? `Solde insuffisant — min. ${TICKET_PRICE} FCFA`
+                      : selected.length < PICK
+                      ? `Choisissez encore ${PICK - selected.length} numéro${PICK - selected.length > 1 ? "s" : ""}`
+                      : "Acheter mon ticket"}
+                  </Text>
+                  {selected.length === PICK && balance >= TICKET_PRICE && (
+                    <Text style={styles.buySubText}>100 FCFA sera déduit de votre solde</Text>
+                  )}
+                </View>
+                {selected.length === PICK && balance >= TICKET_PRICE && (
+                  <View style={styles.buyPriceBadge}>
+                    <Text style={styles.buyPriceText}>100 FCFA</Text>
+                  </View>
+                )}
+              </View>
             )}
           </TouchableOpacity>
         )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {showConfirm && (
+        <Animated.View style={[styles.confirmToast, { opacity: confirmOpacity }]}>
+          <Ionicons name="checkmark-circle" size={22} color="#fff" />
+          <View>
+            <Text style={styles.confirmTitle}>Ticket enregistré !</Text>
+            <Text style={styles.confirmSub}>Bonne chance 🍀 — tirage en cours…</Text>
+          </View>
+        </Animated.View>
+      )}
 
       <Modal visible={showHistory} animationType="slide" onRequestClose={() => setShowHistory(false)}>
         <View style={styles.modalContainer}>
@@ -458,16 +497,53 @@ const styles = StyleSheet.create({
   },
   numberText: { fontSize: 16, fontWeight: "700" },
   buyBtn: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  buyBtnActive: { backgroundColor: COLORS.primary },
+  buyBtnDisabled: { backgroundColor: "#BDBDBD", shadowOpacity: 0 },
+  buyInner: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
+    gap: 12,
   },
-  buyBtnDisabled: { backgroundColor: "#BDBDBD" },
-  buyText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  buyTextBlock: { flex: 1 },
+  buyText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  buySubText: { color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 2 },
+  buyPriceBadge: {
+    backgroundColor: "rgba(255,255,255,0.25)",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  buyPriceText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  confirmToast: {
+    position: "absolute",
+    bottom: 100,
+    left: 20,
+    right: 20,
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 10,
+    zIndex: 999,
+  },
+  confirmTitle: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  confirmSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
   resultCard: {
     backgroundColor: COLORS.card,
     borderRadius: 16,

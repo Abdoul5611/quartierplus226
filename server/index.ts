@@ -1,7 +1,9 @@
 import express from "express";
+import http from "http";
+import WebSocket from "ws";
 import path from "path";
 import { db } from "../db";
-import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests, lotoTickets, courses, courseParis } from "../db/schema";
+import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests, lotoTickets, courses, courseParis, quizSessions } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 import { verify as totpVerify, generate as totpGenerate, generateSecret } from "otplib";
@@ -1796,6 +1798,77 @@ app.use(express.static(WEB_DIST, { maxAge: 0, etag: false, lastModified: false, 
   res.setHeader("Expires", "0");
 }}));
 
+// ─── Quiz REST Endpoints (doit être avant le catch-all SPA) ──────────
+app.get("/api/quiz/next", async (_req, res) => {
+  try {
+    const [session] = await db.select().from(quizSessions)
+      .where(drizzleSql`status IN ('scheduled', 'waiting', 'active')`)
+      .orderBy(quizSessions.scheduledAt)
+      .limit(1);
+    res.json(session ? toSnake(session) : null);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/quiz/sessions", async (_req, res) => {
+  try {
+    const sessions = await db.select().from(quizSessions)
+      .orderBy(desc(quizSessions.createdAt))
+      .limit(20);
+    res.json(toSnake(sessions));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/quiz/sessions", async (req, res) => {
+  try {
+    const { titre, prize_pool, scheduled_at, admin_uid } = req.body;
+    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
+    if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });
+
+    const [session] = await db.insert(quizSessions).values({
+      titre: titre || "Live Quiz QuartierPlus",
+      prizePool: prize_pool || 10000,
+      totalQuestions: QUIZ_QUESTIONS.length,
+      scheduledAt: scheduled_at ? new Date(scheduled_at) : null,
+      status: "scheduled",
+    } as any).returning();
+
+    quizGame = {
+      sessionId: session.id,
+      status: "waiting",
+      currentQuestionIndex: 0,
+      players: new Map(),
+      timerRef: null,
+      tickRef: null,
+      secondsLeft: 10,
+    };
+
+    console.log(`[Quiz] Session créée: ${session.id} — prize: ${prize_pool} FCFA`);
+    res.json(toSnake(session));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.patch("/api/quiz/sessions/:id/schedule", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { scheduled_at, admin_uid } = req.body;
+    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
+    if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });
+    const [session] = await db.update(quizSessions)
+      .set({ scheduledAt: new Date(scheduled_at) } as any)
+      .where(eq(quizSessions.id, id))
+      .returning();
+    res.json(toSnake(session));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // SPA fallback : toutes les routes inconnues renvoient index.html sans cache
 app.use((_req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -1804,8 +1877,334 @@ app.use((_req, res) => {
   res.sendFile(path.join(WEB_DIST, "index.html"));
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+// ─── HTTP Server + WebSocket ──────────────────────────────────────────
+const httpServer = http.createServer(app);
+const wss = new WebSocket.Server({ server: httpServer });
+
+// ─── Quiz Question Bank ───────────────────────────────────────────────
+const QUIZ_QUESTIONS = [
+  { question: "Quelle est la capitale du Sénégal ?", options: ["Dakar", "Abidjan", "Accra", "Bamako"], correct: 0 },
+  { question: "Quelle monnaie est utilisée en Afrique de l'Ouest francophone ?", options: ["Euro", "Naira", "Franc CFA", "Cedi"], correct: 2 },
+  { question: "Le concept de 'téranga' en Sénégal signifie :", options: ["Travail", "Hospitalité", "Courage", "Commerce"], correct: 1 },
+  { question: "Combien de pays membres compte la CEDEAO ?", options: ["12", "13", "15", "17"], correct: 2 },
+  { question: "Le baobab est surnommé l'arbre à... ?", options: ["Vie", "Pain", "Eau", "Lumière"], correct: 1 },
+  { question: "Quel est le plus grand désert du monde ?", options: ["Kalahari", "Namib", "Sahara", "Gobi"], correct: 2 },
+  { question: "Quelle ville africaine est surnommée 'la perle de l'Atlantique' ?", options: ["Abidjan", "Libreville", "Dakar", "Lomé"], correct: 2 },
+  { question: "La médina est traditionnellement :", options: ["Un marché", "Un quartier ancien", "Une mosquée", "Un palais"], correct: 1 },
+  { question: "Le manioc est également appelé :", options: ["Igname", "Cassave", "Taro", "Plantain"], correct: 1 },
+  { question: "Quel pays africain a obtenu l'indépendance en premier au sud du Sahara ?", options: ["Nigeria", "Ghana", "Côte d'Ivoire", "Sénégal"], correct: 1 },
+];
+
+// ─── Quiz In-Memory State ─────────────────────────────────────────────
+interface QuizPlayer {
+  ws: WebSocket;
+  userUid: string;
+  userName: string;
+  eliminated: boolean;
+  answered: boolean;
+  answeredCorrectly: boolean;
+  isAdmin: boolean;
+}
+
+interface QuizGame {
+  sessionId: string;
+  status: "waiting" | "question" | "reviewing" | "finished";
+  currentQuestionIndex: number;
+  players: Map<string, QuizPlayer>;
+  timerRef: ReturnType<typeof setTimeout> | null;
+  tickRef: ReturnType<typeof setInterval> | null;
+  secondsLeft: number;
+}
+
+let quizGame: QuizGame | null = null;
+
+function broadcast(game: QuizGame, msg: object, onlyActive = false) {
+  const payload = JSON.stringify(msg);
+  game.players.forEach((p) => {
+    if (onlyActive && p.eliminated) return;
+    if (p.ws.readyState === WebSocket.OPEN) {
+      p.ws.send(payload);
+    }
+  });
+}
+
+function broadcastPlayerCount(game: QuizGame) {
+  const active = Array.from(game.players.values()).filter((p) => !p.eliminated).length;
+  broadcast(game, { type: "player_count", count: active });
+}
+
+function sendToPlayer(player: QuizPlayer, msg: object) {
+  if (player.ws.readyState === WebSocket.OPEN) {
+    player.ws.send(JSON.stringify(msg));
+  }
+}
+
+async function endQuiz(game: QuizGame) {
+  if (game.timerRef) clearTimeout(game.timerRef);
+  if (game.tickRef) clearInterval(game.tickRef);
+  game.status = "finished";
+
+  const winners = Array.from(game.players.values()).filter((p) => !p.eliminated);
+  const winnerCount = winners.length;
+
+  try {
+    const [session] = await db.select().from(quizSessions).where(eq(quizSessions.id, game.sessionId)).limit(1);
+    const prizePool = session?.prizePool ?? 0;
+    const prizePerWinner = winnerCount > 0 ? Math.floor(prizePool / winnerCount) : 0;
+
+    if (prizePerWinner > 0) {
+      for (const w of winners) {
+        const [u] = await db.select().from(users).where(eq(users.firebaseUid, w.userUid)).limit(1);
+        if (u) {
+          await db.update(users)
+            .set({ walletBalance: (u.walletBalance ?? 0) + prizePerWinner } as any)
+            .where(eq(users.firebaseUid, w.userUid));
+          await logTransaction("quiz_win", "quiz_system", w.userUid, prizePerWinner, 0,
+            `Gain Live Quiz — Grand Partage: ${winnerCount} gagnant(s)`, game.sessionId);
+        }
+      }
+    }
+
+    await db.update(quizSessions)
+      .set({ status: "finished", winnerCount, prizePerWinner } as any)
+      .where(eq(quizSessions.id, game.sessionId));
+
+    game.players.forEach((p) => {
+      const won = !p.eliminated;
+      sendToPlayer(p, {
+        type: "quiz_end",
+        won,
+        prize: won ? prizePerWinner : 0,
+        winner_count: winnerCount,
+        total_players: game.players.size,
+      });
+    });
+    console.log(`[Quiz] Terminé — ${winnerCount} gagnants, ${prizePerWinner} FCFA chacun`);
+  } catch (e) {
+    console.error("[Quiz] Erreur fin de quiz:", e);
+  }
+
+  quizGame = null;
+}
+
+async function startQuestion(game: QuizGame) {
+  if (game.timerRef) clearTimeout(game.timerRef);
+  if (game.tickRef) clearInterval(game.tickRef);
+
+  const activePlayers = Array.from(game.players.values()).filter((p) => !p.eliminated);
+  if (activePlayers.length === 0) {
+    await endQuiz(game);
+    return;
+  }
+
+  if (game.currentQuestionIndex >= QUIZ_QUESTIONS.length) {
+    await endQuiz(game);
+    return;
+  }
+
+  game.status = "question";
+  game.secondsLeft = 10;
+  const q = QUIZ_QUESTIONS[game.currentQuestionIndex];
+
+  game.players.forEach((p) => {
+    p.answered = false;
+    p.answeredCorrectly = false;
+  });
+
+  broadcast(game, {
+    type: "question",
+    index: game.currentQuestionIndex,
+    total: QUIZ_QUESTIONS.length,
+    question: q.question,
+    options: q.options,
+    seconds: 10,
+  });
+
+  await db.update(quizSessions)
+    .set({ currentQuestionIndex: game.currentQuestionIndex } as any)
+    .where(eq(quizSessions.id, game.sessionId));
+
+  game.tickRef = setInterval(() => {
+    game.secondsLeft--;
+    broadcast(game, { type: "timer", seconds: game.secondsLeft });
+    if (game.secondsLeft <= 0) {
+      if (game.tickRef) clearInterval(game.tickRef);
+    }
+  }, 1000);
+
+  game.timerRef = setTimeout(async () => {
+    if (game.tickRef) clearInterval(game.tickRef);
+    game.status = "reviewing";
+
+    const q2 = QUIZ_QUESTIONS[game.currentQuestionIndex];
+    const eliminatedNow: string[] = [];
+
+    game.players.forEach((p) => {
+      if (!p.eliminated && !p.answeredCorrectly) {
+        p.eliminated = true;
+        eliminatedNow.push(p.userUid);
+        sendToPlayer(p, { type: "eliminated", reason: p.answered ? "wrong_answer" : "timeout" });
+      }
+    });
+
+    broadcast(game, {
+      type: "answer_reveal",
+      correct_index: q2.correct,
+      eliminated: eliminatedNow,
+    });
+
+    const stillActive = Array.from(game.players.values()).filter((p) => !p.eliminated).length;
+    broadcast(game, { type: "player_count", count: stillActive });
+
+    await new Promise((r) => setTimeout(r, 3000));
+    game.currentQuestionIndex++;
+    await startQuestion(game);
+  }, 10000);
+}
+
+// ─── WebSocket Handler ────────────────────────────────────────────────
+wss.on("connection", (ws: WebSocket) => {
+  let playerUid: string | null = null;
+
+  ws.on("message", async (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      const { type } = msg;
+
+      if (type === "join") {
+        const { sessionId, userUid, userName } = msg;
+        playerUid = userUid;
+
+        if (!quizGame || quizGame.sessionId !== sessionId) {
+          ws.send(JSON.stringify({ type: "error", message: "Session introuvable ou inactive" }));
+          return;
+        }
+
+        const [u] = await db.select({ isAdmin: users.isAdmin }).from(users)
+          .where(eq(users.firebaseUid, userUid)).limit(1);
+
+        const player: QuizPlayer = {
+          ws,
+          userUid,
+          userName,
+          eliminated: false,
+          answered: false,
+          answeredCorrectly: false,
+          isAdmin: u?.isAdmin ?? false,
+        };
+        quizGame.players.set(userUid, player);
+
+        const activeCount = Array.from(quizGame.players.values()).filter((p) => !p.eliminated).length;
+        ws.send(JSON.stringify({
+          type: "joined",
+          status: quizGame.status,
+          player_count: activeCount,
+          current_question: quizGame.currentQuestionIndex,
+        }));
+        broadcastPlayerCount(quizGame);
+        return;
+      }
+
+      if (type === "answer") {
+        if (!quizGame || !playerUid) return;
+        const player = quizGame.players.get(playerUid);
+        if (!player || player.eliminated || player.answered) return;
+        if (quizGame.status !== "question") return;
+
+        player.answered = true;
+        const q = QUIZ_QUESTIONS[quizGame.currentQuestionIndex];
+        player.answeredCorrectly = msg.answer_index === q.correct;
+
+        ws.send(JSON.stringify({
+          type: "answer_ack",
+          correct: player.answeredCorrectly,
+        }));
+
+        const allAnswered = Array.from(quizGame.players.values())
+          .filter((p) => !p.eliminated)
+          .every((p) => p.answered);
+
+        if (allAnswered && quizGame.timerRef) {
+          clearTimeout(quizGame.timerRef);
+          if (quizGame.tickRef) clearInterval(quizGame.tickRef);
+          quizGame.status = "reviewing";
+
+          const eliminatedNow: string[] = [];
+          quizGame.players.forEach((p) => {
+            if (!p.eliminated && !p.answeredCorrectly) {
+              p.eliminated = true;
+              eliminatedNow.push(p.userUid);
+              sendToPlayer(p, { type: "eliminated", reason: "wrong_answer" });
+            }
+          });
+
+          broadcast(quizGame, { type: "answer_reveal", correct_index: q.correct, eliminated: eliminatedNow });
+          const stillActive = Array.from(quizGame.players.values()).filter((p) => !p.eliminated).length;
+          broadcast(quizGame, { type: "player_count", count: stillActive });
+
+          await new Promise((r) => setTimeout(r, 3000));
+          quizGame.currentQuestionIndex++;
+          await startQuestion(quizGame);
+        }
+        return;
+      }
+
+      if (type === "admin_start") {
+        if (!quizGame || !playerUid) return;
+        const player = quizGame.players.get(playerUid);
+        if (!player?.isAdmin) { ws.send(JSON.stringify({ type: "error", message: "Admin requis" })); return; }
+        await db.update(quizSessions).set({ status: "active" } as any).where(eq(quizSessions.id, quizGame.sessionId));
+        broadcast(quizGame, { type: "quiz_starting", countdown: 3 });
+        await new Promise((r) => setTimeout(r, 3000));
+        await startQuestion(quizGame);
+        return;
+      }
+
+      if (type === "admin_end") {
+        if (!quizGame || !playerUid) return;
+        const player = quizGame.players.get(playerUid);
+        if (!player?.isAdmin) { ws.send(JSON.stringify({ type: "error", message: "Admin requis" })); return; }
+        await endQuiz(quizGame);
+        return;
+      }
+    } catch (e) {
+      console.error("[WS] Erreur message:", e);
+    }
+  });
+
+  ws.on("close", () => {
+    if (playerUid && quizGame) {
+      quizGame.players.delete(playerUid);
+      broadcastPlayerCount(quizGame);
+    }
+  });
+});
+
+// ─── Quiz REST Endpoints ──────────────────────────────────────────────
+(async () => {
+  try {
+    await db.execute(drizzleSql`
+      CREATE TABLE IF NOT EXISTS quiz_sessions (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        titre TEXT NOT NULL DEFAULT 'Live Quiz QuartierPlus',
+        status TEXT NOT NULL DEFAULT 'scheduled',
+        scheduled_at TIMESTAMP,
+        prize_pool INTEGER NOT NULL DEFAULT 10000,
+        total_questions INTEGER NOT NULL DEFAULT 10,
+        current_question_index INTEGER NOT NULL DEFAULT 0,
+        winner_count INTEGER DEFAULT 0,
+        prize_per_winner INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+  } catch (e) {
+    console.error("[Quiz] Table init error:", e);
+  }
+})();
+
+httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Serveur QuartierPlus démarré sur le port ${PORT}`);
   console.log(`📦 Serve fichiers statiques depuis web-dist/`);
   console.log(`🔗 API: http://localhost:${PORT}/api/health`);
+  console.log(`🔌 WebSocket Live Quiz actif`);
 });

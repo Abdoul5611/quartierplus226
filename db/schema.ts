@@ -252,6 +252,19 @@ export const lotoTickets = pgTable("loto_tickets", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const quizSessions = pgTable("quiz_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  titre: text("titre").notNull().default("Live Quiz QuartierPlus"),
+  status: text("status").notNull().default("scheduled"),
+  scheduledAt: timestamp("scheduled_at"),
+  prizePool: integer("prize_pool").notNull().default(10000),
+  totalQuestions: integer("total_questions").notNull().default(10),
+  currentQuestionIndex: integer("current_question_index").notNull().default(0),
+  winnerCount: integer("winner_count").default(0),
+  prizePerWinner: integer("prize_per_winner").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const courses = pgTable("courses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   titre: text("titre").notNull().default("Course de Rue"),

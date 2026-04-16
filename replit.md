@@ -5,7 +5,7 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 ## Architecture
 
 - **Frontend** : Expo (React Native) — navigation Bottom Tabs avec Ionicons, composants natifs (FlatList, KeyboardAvoidingView, Modal)
-- **Serveur** : Express.js sur le port 5000 (sert le web-dist Expo + API REST)
+- **Serveur** : Express.js + HTTP Server + WebSocket (ws) sur le port 5000 (sert le web-dist Expo + API REST + Quiz temps réel)
 - **Base de données** : Neon PostgreSQL via Drizzle ORM
 - **Stockage** : Cloudinary (images, vidéos)
 - **Auth** : Firebase Authentication
@@ -89,6 +89,28 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - **api.ts** : Utilise des URLs relatives sur web (vide), domaine mis à jour pour le natif
 - **metro.config.js** : `allowedHosts: "all"` ajouté pour compatibilité proxy Replit
 - **start.sh** : Build Expo web automatique avant démarrage du serveur
+
+## Live Quiz (Avril 2026)
+
+### Fonctionnement
+- **WebSocket** : `ws` sur le même port 5000 (HTTP Server partagé avec Express)
+- **Sas publicitaire** : 5 pubs simulées (10s chacune) obligatoires avant d'entrer
+- **Salle d'attente** : Joueurs connectés via WS, compteur temps réel
+- **Quiz** : 10 questions, 10s par question, chrono visible
+- **Élimination** : Mauvaise réponse ou temps écoulé = éliminé
+- **Grand Partage** : Cagnotte ÷ nb de survivants → créditée sur wallet de chaque gagnant
+- **Scheduling** : Admin crée une session avec prize_pool et scheduled_at
+- **Bannière Accueil** : Affiche le prochain quiz programmé si un existe
+
+### Endpoints Quiz
+- `GET /api/quiz/next` — Prochain quiz actif/programmé
+- `GET /api/quiz/sessions` — Toutes les sessions (admin)
+- `POST /api/quiz/sessions` — Créer une session (admin)
+- `PATCH /api/quiz/sessions/:id/schedule` — Reprogrammer (admin)
+
+### WebSocket Protocol
+- Client → Server : `join`, `answer`, `admin_start`, `admin_end`
+- Server → Client : `joined`, `player_count`, `question`, `timer`, `answer_ack`, `answer_reveal`, `eliminated`, `quiz_end`
 
 ## Tables de base de données
 

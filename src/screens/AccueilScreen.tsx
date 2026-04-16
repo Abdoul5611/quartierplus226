@@ -69,6 +69,7 @@ export default function AccueilScreen() {
   const [pollChoices, setPollChoices] = useState(["Oui", "Non"]);
   const [coursMode, setCoursMode] = useState(false);
   const [coursPrice, setCoursPrice] = useState("");
+  const [nextQuiz, setNextQuiz] = useState<{ titre: string; scheduled_at?: string; prize_pool: number; status: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -97,6 +98,15 @@ export default function AccueilScreen() {
   }, []);
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/quiz/next")
+      .then((r) => r.json())
+      .then((d) => { if (d && active) setNextQuiz(d); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   // Anime la barre de progression vers une valeur cible (0–100)
   const animateTo = (toValue: number, duration = 600) => {
@@ -361,22 +371,45 @@ export default function AccueilScreen() {
             />
           )}
           ListHeaderComponent={
-            firebaseUser ? (
-              <TouchableOpacity
-                style={styles.pointsBanner}
-                onPress={() => navigation.navigate("Portefeuille" as never)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.pointsBannerIcon}>💰</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.pointsBannerTitle}>
-                    {(dbUser?.points ?? 0).toLocaleString("fr-FR")} pts · {Math.floor((dbUser?.points ?? 0) * 0.25)} FCFA
-                  </Text>
-                  <Text style={styles.pointsBannerSub}>Regardez des vidéos pour gagner des points →</Text>
-                </View>
-                <Text style={styles.pointsBannerArrow}>▶</Text>
-              </TouchableOpacity>
-            ) : null
+            <>
+              {nextQuiz && (
+                <TouchableOpacity
+                  style={styles.quizBanner}
+                  onPress={() => navigation.navigate("Jeux" as never)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.quizBannerEmoji}>🎯</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.quizBannerTitle}>
+                      {nextQuiz.status === "active" ? "🔴 Quiz EN DIRECT !" : "Prochain Live Quiz"}
+                      {nextQuiz.scheduled_at
+                        ? ` à ${new Date(nextQuiz.scheduled_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`
+                        : ""}
+                    </Text>
+                    <Text style={styles.quizBannerSub}>
+                      🏆 {(nextQuiz.prize_pool ?? 0).toLocaleString("fr-FR")} FCFA à partager — Jouer →
+                    </Text>
+                  </View>
+                  <Text style={styles.quizBannerArrow}>▶</Text>
+                </TouchableOpacity>
+              )}
+              {firebaseUser ? (
+                <TouchableOpacity
+                  style={styles.pointsBanner}
+                  onPress={() => navigation.navigate("Portefeuille" as never)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.pointsBannerIcon}>💰</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pointsBannerTitle}>
+                      {(dbUser?.points ?? 0).toLocaleString("fr-FR")} pts · {Math.floor((dbUser?.points ?? 0) * 0.25)} FCFA
+                    </Text>
+                    <Text style={styles.pointsBannerSub}>Regardez des vidéos pour gagner des points →</Text>
+                  </View>
+                  <Text style={styles.pointsBannerArrow}>▶</Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
           }
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPosts(); }} tintColor={COLORS.primary} />}
           ListEmptyComponent={
@@ -597,6 +630,16 @@ const styles = StyleSheet.create({
   pointsBannerTitle: { fontSize: 14, fontWeight: "800", color: "#fff" },
   pointsBannerSub: { fontSize: 11, color: "rgba(255,255,255,0.75)", marginTop: 2 },
   pointsBannerArrow: { fontSize: 18, color: "rgba(255,255,255,0.8)", fontWeight: "700" },
+  quizBanner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "#AD1457", padding: 14,
+    marginHorizontal: 16, marginTop: 12, marginBottom: 4,
+    borderRadius: 14, paddingVertical: 13, paddingHorizontal: 16,
+  },
+  quizBannerEmoji: { fontSize: 26 },
+  quizBannerTitle: { fontSize: 14, fontWeight: "800", color: "#fff" },
+  quizBannerSub: { fontSize: 11, color: "rgba(255,255,255,0.8)", marginTop: 2 },
+  quizBannerArrow: { fontSize: 18, color: "rgba(255,255,255,0.8)", fontWeight: "700" },
   container: { flex: 1, backgroundColor: COLORS.bg },
   header: {
     flexDirection: "row",

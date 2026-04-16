@@ -252,11 +252,42 @@ export const lotoTickets = pgTable("loto_tickets", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const courses = pgTable("courses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  titre: text("titre").notNull().default("Course de Rue"),
+  coureurs: jsonb("coureurs").notNull().default([]),
+  status: text("status").notNull().default("open"),
+  winnerCoureurId: text("winner_coureur_id"),
+  totalMises: integer("total_mises").notNull().default(0),
+  cagnotteAmount: integer("cagnotte_amount").notNull().default(0),
+  adminCut: integer("admin_cut").notNull().default(0),
+  carryoverAmount: integer("carryover_amount").notNull().default(0),
+  finishedAt: timestamp("finished_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const courseParis = pgTable("course_paris", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  courseId: text("course_id").notNull(),
+  userUid: text("user_uid").notNull(),
+  userName: text("user_name"),
+  coureurId: text("coureur_id").notNull(),
+  montant: integer("montant").notNull(),
+  gain: integer("gain").default(0),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export type Vote = typeof votes.$inferSelect;
 export type NewVote = typeof votes.$inferInsert;
 
 export type LotoTicket = typeof lotoTickets.$inferSelect;
 export type NewLotoTicket = typeof lotoTickets.$inferInsert;
+
+export type Course = typeof courses.$inferSelect;
+export type NewCourse = typeof courses.$inferInsert;
+export type CoursePari = typeof courseParis.$inferSelect;
+export type NewCoursePari = typeof courseParis.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

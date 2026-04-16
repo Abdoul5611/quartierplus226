@@ -11,6 +11,7 @@ import ProfilScreen from "../screens/ProfilScreen";
 import AdminScreen from "../screens/AdminScreen";
 import JeuxScreen from "../screens/JeuxScreen";
 import LotoScreen from "../screens/LotoScreen";
+import CourseDeRueScreen from "../screens/CourseDeRueScreen";
 import { useAuth } from "../context/AuthContext";
 
 const Tab = createBottomTabNavigator();
@@ -21,6 +22,7 @@ function JeuxNavigator() {
     <JeuxStack.Navigator screenOptions={{ headerShown: false }}>
       <JeuxStack.Screen name="JeuxHub" component={JeuxScreen} />
       <JeuxStack.Screen name="Loto" component={LotoScreen} />
+      <JeuxStack.Screen name="CourseDeRue" component={CourseDeRueScreen} />
     </JeuxStack.Navigator>
   );
 }

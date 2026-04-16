@@ -91,6 +91,18 @@ const GAMES: GameCard[] = [
     available: false,
   },
   {
+    id: "course",
+    title: "Course de Rue",
+    subtitle: "Pariez sur votre coureur favori. Système Pari Mutuel — cagnotte partagée !",
+    icon: "flag",
+    color: "#E65100",
+    bgColor: "#FFF3E0",
+    cost: "min. 50 FCFA",
+    maxWin: "Cagnotte commune",
+    route: "CourseDeRue",
+    available: true,
+  },
+  {
     id: "prediction",
     title: "Prédictions",
     subtitle: "Pariez sur des événements locaux (météo, marché, sport).",

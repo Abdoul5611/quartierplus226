@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { db } from "../db";
-import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests, lotoTickets } from "../db/schema";
+import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests, lotoTickets, courses, courseParis } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 import { verify as totpVerify, generate as totpGenerate, generateSecret } from "otplib";
@@ -1482,6 +1482,253 @@ app.get("/api/loto/stats", async (_req, res) => {
       total_wins: Number(wins[0]?.count ?? 0),
       total_prizes_paid: Number(wins[0]?.total ?? 0),
     });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Course de Rue — Init tables ─────────────────────────────────────
+(async () => {
+  try {
+    await db.execute(drizzleSql`
+      CREATE TABLE IF NOT EXISTS courses (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        titre TEXT NOT NULL DEFAULT 'Course de Rue',
+        coureurs JSONB NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'open',
+        winner_coureur_id TEXT,
+        total_mises INTEGER NOT NULL DEFAULT 0,
+        cagnotte_amount INTEGER NOT NULL DEFAULT 0,
+        admin_cut INTEGER NOT NULL DEFAULT 0,
+        carryover_amount INTEGER NOT NULL DEFAULT 0,
+        finished_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(drizzleSql`
+      CREATE TABLE IF NOT EXISTS course_paris (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id TEXT NOT NULL,
+        user_uid TEXT NOT NULL,
+        user_name TEXT,
+        coureur_id TEXT NOT NULL,
+        montant INTEGER NOT NULL,
+        gain INTEGER DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+  } catch (e) {
+    console.error("[Course] Table init error:", e);
+  }
+})();
+
+const COURSE_ADMIN_PERCENT = 0.20;
+
+// GET /api/courses/active
+app.get("/api/courses/active", async (_req, res) => {
+  try {
+    const [course] = await db.select().from(courses)
+      .where(drizzleSql`status IN ('open', 'running')`)
+      .orderBy(desc(courses.createdAt))
+      .limit(1);
+    if (!course) return res.json(null);
+
+    const paris = await db.select().from(courseParis).where(eq(courseParis.courseId, course.id));
+    const totalMises = paris.reduce((s, p) => s + p.montant, 0);
+    const cagnotte = Math.floor(totalMises * (1 - COURSE_ADMIN_PERCENT)) + (course.carryoverAmount ?? 0);
+
+    const repartition: Record<string, number> = {};
+    for (const p of paris) {
+      repartition[p.coureurId] = (repartition[p.coureurId] ?? 0) + 1;
+    }
+
+    res.json(toSnake({ ...course, totalMises, cagnotteAmount: cagnotte, repartition }));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// GET /api/courses/history
+app.get("/api/courses/history", async (_req, res) => {
+  try {
+    const history = await db.select().from(courses)
+      .where(eq(courses.status, "finished"))
+      .orderBy(desc(courses.finishedAt))
+      .limit(10);
+    res.json(toSnake(history));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// GET /api/courses/:id/paris
+app.get("/api/courses/:id/paris", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const paris = await db.select().from(courseParis).where(eq(courseParis.courseId, id));
+    res.json(toSnake(paris));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// POST /api/courses — Admin crée une course
+app.post("/api/courses", async (req, res) => {
+  try {
+    const { titre, coureurs, admin_uid, carryover_amount } = req.body;
+    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
+    if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });
+
+    const [course] = await db.insert(courses).values({
+      titre: titre || "Course de Rue",
+      coureurs: coureurs as any,
+      status: "open",
+      carryoverAmount: carryover_amount ?? 0,
+      totalMises: 0,
+      cagnotteAmount: 0,
+      adminCut: 0,
+    } as any).returning();
+
+    res.json(toSnake(course));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// PATCH /api/courses/:id/status — Admin passe en running
+app.patch("/api/courses/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, admin_uid } = req.body;
+    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
+    if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });
+    if (!["open", "running"].includes(status)) return res.status(400).json({ error: "Status invalide" });
+    const [course] = await db.update(courses).set({ status } as any).where(eq(courses.id, id)).returning();
+    res.json(toSnake(course));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// POST /api/courses/pari — Un utilisateur mise
+app.post("/api/courses/pari", async (req, res) => {
+  try {
+    const { course_id, user_uid, user_name, coureur_id, montant } = req.body;
+    if (!course_id || !user_uid || !coureur_id || !montant) {
+      return res.status(400).json({ error: "course_id, user_uid, coureur_id et montant requis" });
+    }
+    if (montant < 50) return res.status(400).json({ error: "Mise minimum : 50 FCFA" });
+
+    const [course] = await db.select().from(courses).where(eq(courses.id, course_id)).limit(1);
+    if (!course) return res.status(404).json({ error: "Course introuvable" });
+    if (course.status === "finished") return res.status(400).json({ error: "Cette course est terminée" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, user_uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.isBanned) return res.status(403).json({ error: "Compte suspendu" });
+    if ((user.walletBalance ?? 0) < montant) {
+      return res.status(400).json({ error: `Solde insuffisant. Vous avez ${user.walletBalance} FCFA.` });
+    }
+
+    const alreadyBet = await db.select().from(courseParis)
+      .where(drizzleSql`course_id = ${course_id} AND user_uid = ${user_uid}`)
+      .limit(1);
+    if (alreadyBet.length > 0) return res.status(409).json({ error: "Vous avez déjà misé sur cette course" });
+
+    const newBalance = (user.walletBalance ?? 0) - montant;
+    await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, user_uid));
+
+    const [pari] = await db.insert(courseParis).values({
+      courseId: course_id,
+      userUid: user_uid,
+      userName: user_name || "Voisin",
+      coureurId: coureur_id,
+      montant,
+      status: "pending",
+    } as any).returning();
+
+    await logTransaction("course_pari", user_uid, "course_system", montant, 0,
+      `Mise Course de Rue — Coureur: ${coureur_id}`, course_id);
+
+    const allParis = await db.select().from(courseParis).where(eq(courseParis.courseId, course_id));
+    const totalMises = allParis.reduce((s, p) => s + p.montant, 0);
+    const cagnotte = Math.floor(totalMises * (1 - COURSE_ADMIN_PERCENT)) + (course.carryoverAmount ?? 0);
+
+    res.json(toSnake({ pari, newBalance, totalMises, cagnotteAmount: cagnotte }));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// POST /api/courses/:id/finish — Admin termine la course (Pari Mutuel)
+app.post("/api/courses/:id/finish", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { winner_coureur_id, admin_uid } = req.body;
+    if (!winner_coureur_id) return res.status(400).json({ error: "winner_coureur_id requis" });
+
+    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
+    if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });
+
+    const [course] = await db.select().from(courses).where(eq(courses.id, id)).limit(1);
+    if (!course) return res.status(404).json({ error: "Course introuvable" });
+    if (course.status === "finished") return res.status(400).json({ error: "Course déjà terminée" });
+
+    const allParis = await db.select().from(courseParis).where(eq(courseParis.courseId, id));
+    const totalMises = allParis.reduce((s, p) => s + p.montant, 0);
+    const adminCut = Math.floor(totalMises * COURSE_ADMIN_PERCENT);
+    const cagnotte = totalMises - adminCut + (course.carryoverAmount ?? 0);
+
+    const parisGagnants = allParis.filter((p) => p.coureurId === winner_coureur_id);
+    let carryoverAmount = 0;
+    let gainParGagnant = 0;
+
+    if (parisGagnants.length === 0) {
+      carryoverAmount = cagnotte;
+    } else {
+      gainParGagnant = Math.floor(cagnotte / parisGagnants.length);
+    }
+
+    for (const pari of allParis) {
+      const isWinner = pari.coureurId === winner_coureur_id;
+      const gain = isWinner ? gainParGagnant : 0;
+      await db.update(courseParis)
+        .set({ status: isWinner ? "won" : "lost", gain } as any)
+        .where(eq(courseParis.id, pari.id));
+
+      if (isWinner && gain > 0) {
+        const [u] = await db.select().from(users).where(eq(users.firebaseUid, pari.userUid)).limit(1);
+        if (u) {
+          await db.update(users)
+            .set({ walletBalance: (u.walletBalance ?? 0) + gain } as any)
+            .where(eq(users.firebaseUid, pari.userUid));
+          await logTransaction("course_gain", "course_system", pari.userUid, gain, 0,
+            `Gain Course de Rue — Coureur gagnant: ${winner_coureur_id}`, id);
+        }
+      }
+    }
+
+    const [updatedCourse] = await db.update(courses).set({
+      status: "finished",
+      winnerCoureurId: winner_coureur_id,
+      totalMises,
+      cagnotteAmount: cagnotte,
+      adminCut,
+      carryoverAmount,
+      finishedAt: new Date(),
+    } as any).where(eq(courses.id, id)).returning();
+
+    res.json(toSnake({
+      course: updatedCourse,
+      totalMises,
+      cagnotte,
+      adminCut,
+      gainParGagnant,
+      nbGagnants: parisGagnants.length,
+      carryoverAmount,
+      hasCarryover: carryoverAmount > 0,
+    }));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

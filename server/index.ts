@@ -9,6 +9,18 @@ import { cloudinary } from "../lib/cloudinary";
 import { verify as totpVerify, generate as totpGenerate, generateSecret } from "otplib";
 const ADMIN_EMAIL = "administrateurquartierplus@gmail.com";
 
+let wss: WebSocket.Server | null = null;
+
+function broadcastToAll(msg: object) {
+  if (!wss) return;
+  const payload = JSON.stringify(msg);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(payload);
+    }
+  });
+}
+
 function toSnake(obj: any): any {
   if (Array.isArray(obj)) return obj.map(toSnake);
   if (obj === null || typeof obj !== "object" || obj instanceof Date) return obj;
@@ -1651,6 +1663,7 @@ app.patch("/api/courses/:id/status", async (req, res) => {
     if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });
     if (!["open", "running"].includes(status)) return res.status(400).json({ error: "Status invalide" });
     const [course] = await db.update(courses).set({ status } as any).where(eq(courses.id, id)).returning();
+    broadcastToAll({ type: "course_status", courseId: id, status });
     res.json(toSnake(course));
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -1765,6 +1778,16 @@ app.post("/api/courses/:id/finish", async (req, res) => {
       finishedAt: new Date(),
     } as any).where(eq(courses.id, id)).returning();
 
+    broadcastToAll({
+      type: "course_finished",
+      courseId: id,
+      winnerCoureurId: winner_coureur_id,
+      gainParGagnant,
+      nbGagnants: parisGagnants.length,
+      hasCarryover: carryoverAmount > 0,
+      carryoverAmount,
+    });
+
     res.json(toSnake({
       course: updatedCourse,
       totalMises,
@@ -1775,6 +1798,104 @@ app.post("/api/courses/:id/finish", async (req, res) => {
       carryoverAmount,
       hasCarryover: carryoverAmount > 0,
     }));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Statistiques Système ────────────────────────────────────
+app.get("/api/admin/system-stats", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+
+    const allUsers = await db.select({ walletBalance: users.walletBalance }).from(users);
+    const totalWallets = allUsers.reduce((s, u) => s + (u.walletBalance ?? 0), 0);
+
+    const activeCourse = await db.select().from(courses)
+      .where(drizzleSql`status IN ('open', 'running')`)
+      .limit(1);
+
+    let totalParisCours = 0;
+    if (activeCourse.length > 0) {
+      const paris = await db.select({ montant: courseParis.montant })
+        .from(courseParis)
+        .where(eq(courseParis.courseId, activeCourse[0].id));
+      totalParisCours = paris.reduce((s, p) => s + p.montant, 0);
+    }
+
+    const userCount = allUsers.length;
+
+    res.json({
+      total_wallets: totalWallets,
+      total_paris_en_cours: totalParisCours,
+      user_count: userCount,
+      active_course: activeCourse.length > 0 ? toSnake(activeCourse[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Historique des Gains ────────────────────────────────────
+app.get("/api/admin/gains-history", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+
+    const recentWins = await db.select().from(transactions)
+      .where(drizzleSql`type IN ('course_gain', 'quiz_win', 'loto_win')`)
+      .orderBy(desc(transactions.createdAt))
+      .limit(50);
+
+    res.json(toSnake(recentWins));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Ajouter une question Quiz personnalisée ─────────────────
+app.post("/api/admin/quiz/add-question", async (req, res) => {
+  try {
+    const { email, question, options, correct_index } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (!question || !Array.isArray(options) || options.length !== 4) {
+      return res.status(400).json({ error: "question et 4 options requis" });
+    }
+    if (correct_index === undefined || correct_index < 0 || correct_index > 3) {
+      return res.status(400).json({ error: "correct_index entre 0 et 3 requis" });
+    }
+    const newQ = { question: question.trim(), options: options.map((o: string) => o.trim()), correct: correct_index };
+    QUIZ_QUESTIONS.unshift(newQ);
+    if (QUIZ_QUESTIONS.length > 20) QUIZ_QUESTIONS.pop();
+    res.json({ success: true, total_questions: QUIZ_QUESTIONS.length, question: newQ });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Contrôle Course de Rue (sans admin_uid, via email) ──────
+app.get("/api/admin/course-active", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+
+    const [course] = await db.select().from(courses)
+      .where(drizzleSql`status IN ('open', 'running')`)
+      .orderBy(desc(courses.createdAt))
+      .limit(1);
+
+    if (!course) return res.json(null);
+
+    const paris = await db.select().from(courseParis).where(eq(courseParis.courseId, course.id));
+    const repartition: Record<string, number> = {};
+    for (const p of paris) {
+      repartition[p.coureurId] = (repartition[p.coureurId] ?? 0) + 1;
+    }
+    const totalMises = paris.reduce((s, p) => s + p.montant, 0);
+    const cagnotte = Math.floor(totalMises * (1 - COURSE_ADMIN_PERCENT)) + (course.carryoverAmount ?? 0);
+
+    res.json(toSnake({ ...course, totalMises, cagnotteAmount: cagnotte, repartition, paris: toSnake(paris) }));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -1879,7 +2000,7 @@ app.use((_req, res) => {
 
 // ─── HTTP Server + WebSocket ──────────────────────────────────────────
 const httpServer = http.createServer(app);
-const wss = new WebSocket.Server({ server: httpServer });
+wss = new WebSocket.Server({ server: httpServer });
 
 // ─── Quiz Question Bank ───────────────────────────────────────────────
 const QUIZ_QUESTIONS = [

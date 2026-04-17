@@ -57,8 +57,10 @@ export default function PublicProfilModal({ visible, authorId, authorName, autho
   const handleContactMessages = () => {
     onClose();
     navigation.navigate("Messages", {
-      initialChannel: "general",
-      prefillText: `@${authorName} `,
+      dmUserId: authorId,
+      dmUserName: user?.display_name || authorName,
+      dmUserAvatar: photo || undefined,
+      _t: Date.now(),
     });
   };
 
@@ -230,7 +232,7 @@ const styles = StyleSheet.create({
   topBarTitle: { fontSize: 16, fontWeight: "800", color: COLORS.text },
   profileHeader: { alignItems: "center", paddingTop: 32, paddingBottom: 24, backgroundColor: COLORS.card },
   avatarWrap: { position: "relative", marginBottom: 12 },
-  avatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: "#E8F5E9" },
+  avatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: "#E8F5E9", overflow: "hidden" },
   avatarFallback: {
     width: 96, height: 96, borderRadius: 48,
     backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center",

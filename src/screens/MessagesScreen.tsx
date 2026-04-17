@@ -225,7 +225,12 @@ export default function MessagesScreen() {
     setDmLoading(true);
     try {
       const convs = await fetchDMConversations(firebaseUser.uid);
-      setDmConversations(convs);
+      const sorted = [...convs].sort(
+        (a, b) =>
+          new Date(b.last_message_at || 0).getTime() -
+          new Date(a.last_message_at || 0).getTime()
+      );
+      setDmConversations(sorted);
     } catch {}
     finally { setDmLoading(false); }
   }, [firebaseUser]);

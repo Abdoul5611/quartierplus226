@@ -21,6 +21,10 @@ function broadcastToAll(msg: object) {
   });
 }
 
+const gameEnabled: { course: boolean; quiz: boolean } = { course: true, quiz: true };
+let serviceFeePercent: number = 0.20;
+let serviceFcfa: number | null = null;
+
 function toSnake(obj: any): any {
   if (Array.isArray(obj)) return obj.map(toSnake);
   if (obj === null || typeof obj !== "object" || obj instanceof Date) return obj;
@@ -1538,6 +1542,7 @@ app.get("/api/loto/stats", async (_req, res) => {
 })();
 
 const COURSE_ADMIN_PERCENT = 0.20;
+function getCourseAdminPercent() { return serviceFeePercent > 0 ? serviceFeePercent : COURSE_ADMIN_PERCENT; }
 
 const COUREURS_AUTO = [
   { id: "c1", name: "Kofi le Rapide", emoji: "🏃" },
@@ -1673,6 +1678,7 @@ app.patch("/api/courses/:id/status", async (req, res) => {
 // POST /api/courses/pari — Un utilisateur mise
 app.post("/api/courses/pari", async (req, res) => {
   try {
+    if (!gameEnabled.course) return res.status(503).json({ error: "La Course de Rue est temporairement désactivée par l'administrateur." });
     const { course_id, user_uid, user_name, coureur_id, montant } = req.body;
     if (!course_id || !user_uid || !coureur_id || !montant) {
       return res.status(400).json({ error: "course_id, user_uid, coureur_id et montant requis" });
@@ -1874,6 +1880,152 @@ app.post("/api/admin/quiz/add-question", async (req, res) => {
   }
 });
 
+// ─── Admin : Flash Message Broadcast ────────────────────────────────
+app.post("/api/admin/flash-message", async (req, res) => {
+  try {
+    const { email, message, title } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (!message?.trim()) return res.status(400).json({ error: "message requis" });
+    broadcastToAll({
+      type: "flash_message",
+      title: title?.trim() || "📢 Message du Quartier",
+      message: message.trim(),
+      sentAt: new Date().toISOString(),
+    });
+    res.json({ success: true, recipients: wss?.clients.size ?? 0 });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Bannir / Débannir un utilisateur ────────────────────────
+app.patch("/api/admin/users/:uid/ban", async (req, res) => {
+  try {
+    const { email, ban } = req.body;
+    const { uid } = req.params;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const [user] = await db.update(users)
+      .set({ isBanned: ban === true } as any)
+      .where(eq(users.firebaseUid, uid))
+      .returning();
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (ban === true) {
+      broadcastToAll({ type: "user_banned", uid });
+    }
+    res.json({ success: true, uid, isBanned: user.isBanned });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Recherche d'utilisateurs ───────────────────────────────
+app.get("/api/admin/users/search", async (req, res) => {
+  try {
+    const { email, q } = req.query as { email?: string; q?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (!q || q.trim().length < 2) return res.status(400).json({ error: "Terme de recherche requis (min 2 caractères)" });
+    const term = `%${q.trim().toLowerCase()}%`;
+    const results = await db.select({
+      firebaseUid: users.firebaseUid,
+      displayName: users.displayName,
+      email: users.email,
+      walletBalance: users.walletBalance,
+      isBanned: users.isBanned,
+      isAdmin: users.isAdmin,
+    }).from(users)
+      .where(drizzleSql`LOWER(display_name) LIKE ${term} OR LOWER(email) LIKE ${term}`)
+      .limit(20);
+    res.json(toSnake(results));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : État des jeux ───────────────────────────────────────────
+app.get("/api/admin/game-status", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    res.json({ course: gameEnabled.course, quiz: gameEnabled.quiz });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Toggle jeu ──────────────────────────────────────────────
+app.post("/api/admin/game-toggle", async (req, res) => {
+  try {
+    const { email, game, enabled } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (!["course", "quiz"].includes(game)) return res.status(400).json({ error: "game doit être 'course' ou 'quiz'" });
+    gameEnabled[game as "course" | "quiz"] = enabled === true;
+    broadcastToAll({ type: "game_toggle", game, enabled: gameEnabled[game as "course" | "quiz"] });
+    res.json({ success: true, game, enabled: gameEnabled[game as "course" | "quiz"] });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Reset scores de jeu ─────────────────────────────────────
+app.post("/api/admin/game-reset", async (req, res) => {
+  try {
+    const { email, game } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (game === "course") {
+      await db.execute(drizzleSql`UPDATE course_paris SET status = 'reset', gain = 0 WHERE status = 'pending'`);
+      await db.execute(drizzleSql`UPDATE courses SET status = 'finished', finished_at = NOW() WHERE status IN ('open', 'running')`);
+      broadcastToAll({ type: "course_reset" });
+    } else if (game === "quiz") {
+      if (quizGame) {
+        quizGame.players.clear();
+        quizGame = null;
+      }
+      broadcastToAll({ type: "quiz_reset" });
+    }
+    res.json({ success: true, game, message: `${game} réinitialisé avec succès` });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Lire commission ──────────────────────────────────────────
+app.get("/api/admin/commission", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    res.json({
+      mode: serviceFcfa !== null ? "fixed" : "percent",
+      fcfa: serviceFcfa,
+      percent: Math.round(serviceFeePercent * 100),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Définir commission ───────────────────────────────────────
+app.post("/api/admin/commission", async (req, res) => {
+  try {
+    const { email, mode, value } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (mode === "fixed") {
+      serviceFcfa = Number(value) || 0;
+      serviceFeePercent = 0.20;
+    } else {
+      serviceFcfa = null;
+      serviceFeePercent = (Number(value) || 20) / 100;
+    }
+    res.json({
+      success: true,
+      mode,
+      fcfa: serviceFcfa,
+      percent: Math.round(serviceFeePercent * 100),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── Admin : Contrôle Course de Rue (sans admin_uid, via email) ──────
 app.get("/api/admin/course-active", async (req, res) => {
   try {
@@ -1945,6 +2097,7 @@ app.get("/api/quiz/sessions", async (_req, res) => {
 
 app.post("/api/quiz/sessions", async (req, res) => {
   try {
+    if (!gameEnabled.quiz) return res.status(503).json({ error: "Le Quiz est temporairement désactivé par l'administrateur." });
     const { titre, prize_pool, scheduled_at, admin_uid } = req.body;
     const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
     if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });

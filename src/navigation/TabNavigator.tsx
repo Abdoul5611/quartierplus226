@@ -20,7 +20,17 @@ const JeuxStack = createNativeStackNavigator();
 
 function JeuxNavigator() {
   return (
-    <JeuxStack.Navigator screenOptions={{ headerShown: false }}>
+    <JeuxStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: "slide_from_right",
+        gestureEnabled: true,
+        gestureDirection: "horizontal",
+        fullScreenGestureEnabled: true,
+        animationDuration: 280,
+        contentStyle: { backgroundColor: "#F5F5F5" },
+      }}
+    >
       <JeuxStack.Screen name="JeuxHub" component={JeuxScreen} />
       <JeuxStack.Screen name="Loto" component={LotoScreen} />
       <JeuxStack.Screen name="CourseDeRue" component={CourseDeRueScreen} />

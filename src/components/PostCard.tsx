@@ -460,7 +460,7 @@ function PollWidget({ post }: { post: Post }) {
   );
 }
 
-export default function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: PostCardProps) {
+function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: PostCardProps) {
   const { firebaseUser } = useAuth();
   const [likes, setLikes] = useState<string[]>(Array.isArray(post.likes) ? post.likes : []);
   const [comments, setComments] = useState<any[]>(Array.isArray(post.comments) ? post.comments : []);
@@ -869,3 +869,5 @@ const cm = StyleSheet.create({
   sendBtnDisabled: { backgroundColor: "#C8E6C9" },
   sendBtnText: { color: "#fff", fontSize: 18, fontWeight: "700" },
 });
+
+export default React.memo(PostCard);

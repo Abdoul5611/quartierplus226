@@ -7,6 +7,10 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev"
       }
@@ -15,7 +19,8 @@
       "distribution": "internal",
       "credentialsSource": "remote",
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev"
@@ -25,14 +30,20 @@
       "autoIncrement": true,
       "credentialsSource": "remote",
       "android": {
-        "buildType": "apk"
+        "buildType": "app-bundle",
+        "gradleCommand": ":app:bundleRelease"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "https://quartierplus.replit.app"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
+        "track": "internal"
+      }
+    }
   }
 }

@@ -292,6 +292,27 @@ export default function AccueilScreen() {
     setCoursPrice("");
   };
 
+  const handleAuthorPress = useCallback(
+    (authorId: string, authorName: string, authorAvatar?: string) => {
+      setPublicProfil({ authorId, authorName, authorAvatar });
+    },
+    []
+  );
+
+  const keyExtractor = useCallback((item: Post) => item.id, []);
+
+  const renderPost = useCallback(
+    ({ item }: { item: Post }) => (
+      <PostCard
+        post={item}
+        onLiked={fetchPosts}
+        userLocation={userLocation}
+        onAuthorPress={handleAuthorPress}
+      />
+    ),
+    [fetchPosts, userLocation, handleAuthorPress]
+  );
+
   const nowAcc = new Date();
   const filteredPosts = (filter === "tous"
     ? posts
@@ -359,17 +380,14 @@ export default function AccueilScreen() {
       ) : (
         <FlatList
           data={filteredPosts}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <PostCard
-              post={item}
-              onLiked={fetchPosts}
-              userLocation={userLocation}
-              onAuthorPress={(authorId, authorName, authorAvatar) =>
-                setPublicProfil({ authorId, authorName, authorAvatar })
-              }
-            />
-          )}
+          keyExtractor={keyExtractor}
+          renderItem={renderPost}
+          initialNumToRender={6}
+          maxToRenderPerBatch={4}
+          windowSize={7}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS !== "web"}
+          keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
             <>
               {nextQuiz && (

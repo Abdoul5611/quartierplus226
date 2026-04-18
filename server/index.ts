@@ -22,7 +22,7 @@ function broadcastToAll(msg: object) {
   });
 }
 
-const gameEnabled: { course: boolean; quiz: boolean } = { course: true, quiz: true };
+const gameEnabled: { course: boolean; quiz: boolean; loto: boolean } = { course: true, quiz: true, loto: true };
 let serviceFeePercent: number = 0.20;
 let serviceFcfa: number | null = null;
 
@@ -1703,6 +1703,7 @@ function drawLotoNumbers(): number[] {
 
 app.post("/api/loto/buy", async (req, res) => {
   try {
+    if (!gameEnabled.loto) return res.status(503).json({ error: "Le Loto est temporairement désactivé par l'administrateur." });
     const { userUid, chosenNumbers } = req.body;
     if (!userUid || !Array.isArray(chosenNumbers)) {
       return res.status(400).json({ error: "userUid et chosenNumbers requis" });
@@ -1725,44 +1726,135 @@ app.post("/api/loto/buy", async (req, res) => {
       return res.status(400).json({ error: `Solde insuffisant. Il vous faut au moins ${LOTO_TICKET_PRICE} FCFA.` });
     }
 
-    const drawnNumbers = drawLotoNumbers();
-    const chosenSet = new Set(chosenNumbers);
-    const matchedCount = drawnNumbers.filter((n) => chosenSet.has(n)).length;
-    const prizeAmount = LOTO_PRIZES[matchedCount] ?? 0;
-
-    const newBalance = (user.walletBalance ?? 0) - LOTO_TICKET_PRICE + prizeAmount;
-    await db.update(users)
-      .set({ walletBalance: newBalance } as any)
-      .where(eq(users.firebaseUid, userUid));
+    // Déduire le prix immédiatement — le tirage se fait lors du prochain tirage admin
+    const newBalance = (user.walletBalance ?? 0) - LOTO_TICKET_PRICE;
+    await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, userUid));
 
     await logTransaction("loto_bet", userUid, null, LOTO_TICKET_PRICE, 0,
-      `Ticket Loto 5/30 — numéros: ${chosenNumbers.join(",")}`, undefined);
+      `Ticket Loto 5/30 — numéros: ${chosenNumbers.join(",")} [en attente tirage]`, undefined);
 
-    if (prizeAmount > 0) {
-      const label = matchedCount === 5 ? "🎉 JACKPOT Loto 5/30 !" : `Gain Loto 5/30 (${matchedCount} bons numéros)`;
-      await logTransaction("loto_win", "loto_system", userUid, prizeAmount, 0, label, undefined);
-    }
-
+    // Ticket saved as "pending" — drawnNumbers=[] until admin triggers draw
     const [ticket] = await db.insert(lotoTickets).values({
       userUid,
       chosenNumbers: chosenNumbers as any,
-      drawnNumbers: drawnNumbers as any,
-      matchedCount,
-      prizeAmount,
-      status: "completed",
+      drawnNumbers: [] as any,
+      matchedCount: 0,
+      prizeAmount: 0,
+      status: "pending",
     }).returning();
+
+    broadcastToAll({ type: "loto_ticket_sold", ticket_id: ticket.id, user_uid: userUid });
 
     res.json(toSnake({
       success: true,
+      pending: true,
       ticket: toSnake(ticket),
-      drawnNumbers,
-      matchedCount,
-      prizeAmount,
       newBalance,
-      isJackpot: matchedCount === 5,
+      message: `🎟️ Ticket enregistré ! Numéros : ${chosenNumbers.join(" - ")}. Résultat au prochain tirage admin.`,
     }));
   } catch (err) {
     console.error("[Loto] buy error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin: Statistiques des tickets en attente ────────────────────────
+app.get("/api/admin/loto/stats", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+
+    const pending = await db.select().from(lotoTickets).where(eq(lotoTickets.status as any, "pending"));
+    const [lastDraw] = await db.select().from(lotoTickets)
+      .where(eq(lotoTickets.status as any, "completed"))
+      .orderBy(desc(lotoTickets.createdAt))
+      .limit(1);
+
+    res.json({
+      pending_count: pending.length,
+      pot_total: pending.length * LOTO_TICKET_PRICE,
+      last_draw_at: lastDraw?.createdAt || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin: Lancer le tirage Loto ─────────────────────────────────────
+app.post("/api/admin/loto/draw", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+
+    const pendingTickets = await db.select().from(lotoTickets).where(eq(lotoTickets.status as any, "pending"));
+    if (pendingTickets.length === 0) return res.status(400).json({ error: "Aucun ticket en attente. Attendez que des joueurs achètent des tickets." });
+
+    const drawnNumbers = drawLotoNumbers();
+    const drawnSet = new Set(drawnNumbers);
+    let totalPrizesPaid = 0;
+    const winners: { uid: string; matched: number; prize: number }[] = [];
+
+    for (const ticket of pendingTickets) {
+      const chosen = Array.isArray(ticket.chosenNumbers) ? ticket.chosenNumbers as number[] : [];
+      const matchedCount = chosen.filter((n) => drawnSet.has(n)).length;
+      const prizeAmount = LOTO_PRIZES[matchedCount] ?? 0;
+
+      await db.update(lotoTickets)
+        .set({ drawnNumbers: drawnNumbers as any, matchedCount, prizeAmount, status: "completed" } as any)
+        .where(eq(lotoTickets.id, ticket.id));
+
+      if (prizeAmount > 0) {
+        const [winner] = await db.select().from(users).where(eq(users.firebaseUid, ticket.userUid!)).limit(1);
+        if (winner) {
+          const newBal = (winner.walletBalance ?? 0) + prizeAmount;
+          await db.update(users).set({ walletBalance: newBal } as any).where(eq(users.firebaseUid, ticket.userUid!));
+          const label = matchedCount === LOTO_PICK_COUNT ? "🎉 JACKPOT Loto 5/30 !" : `🎰 Gain Loto (${matchedCount} bons numéros)`;
+          await logTransaction("loto_win", "loto_system", ticket.userUid!, prizeAmount, 0, label, undefined);
+          broadcastToUser(ticket.userUid!, {
+            type: "loto_result",
+            drawn_numbers: drawnNumbers,
+            chosen_numbers: chosen,
+            matched_count: matchedCount,
+            prize_amount: prizeAmount,
+            new_balance: newBal,
+            is_jackpot: matchedCount === LOTO_PICK_COUNT,
+            message: label,
+          });
+          winners.push({ uid: ticket.userUid!, matched: matchedCount, prize: prizeAmount });
+          totalPrizesPaid += prizeAmount;
+        }
+      } else {
+        broadcastToUser(ticket.userUid!, {
+          type: "loto_result",
+          drawn_numbers: drawnNumbers,
+          chosen_numbers: chosen,
+          matched_count: matchedCount,
+          prize_amount: 0,
+          message: `🎰 Tirage Loto : ${drawnNumbers.join(" - ")} — ${matchedCount} bon${matchedCount > 1 ? "s" : ""} numéro${matchedCount > 1 ? "s" : ""}`,
+        });
+      }
+    }
+
+    // Broadcast le résultat global à tous
+    broadcastToAll({
+      type: "loto_draw_complete",
+      drawn_numbers: drawnNumbers,
+      nb_participants: pendingTickets.length,
+      nb_winners: winners.length,
+      total_prizes_paid: totalPrizesPaid,
+    });
+
+    console.log(`[ADMIN LOTO] Tirage effectué: ${drawnNumbers.join("-")} | ${pendingTickets.length} tickets | ${winners.length} gagnants | ${totalPrizesPaid} FCFA distribués`);
+    res.json({
+      success: true,
+      drawn_numbers: drawnNumbers,
+      nb_participants: pendingTickets.length,
+      nb_winners: winners.length,
+      total_prizes_paid: totalPrizesPaid,
+      winners,
+    });
+  } catch (err) {
+    console.error("[Admin Loto Draw]", err);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -2249,7 +2341,7 @@ app.get("/api/admin/game-status", async (req, res) => {
   try {
     const { email } = req.query as { email?: string };
     if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
-    res.json({ course: gameEnabled.course, quiz: gameEnabled.quiz });
+    res.json({ course: gameEnabled.course, quiz: gameEnabled.quiz, loto: gameEnabled.loto });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -2260,10 +2352,10 @@ app.post("/api/admin/game-toggle", async (req, res) => {
   try {
     const { email, game, enabled } = req.body;
     if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
-    if (!["course", "quiz"].includes(game)) return res.status(400).json({ error: "game doit être 'course' ou 'quiz'" });
-    gameEnabled[game as "course" | "quiz"] = enabled === true;
-    broadcastToAll({ type: "game_toggle", game, enabled: gameEnabled[game as "course" | "quiz"] });
-    res.json({ success: true, game, enabled: gameEnabled[game as "course" | "quiz"] });
+    if (!["course", "quiz", "loto"].includes(game)) return res.status(400).json({ error: "game doit être 'course', 'quiz' ou 'loto'" });
+    gameEnabled[game as "course" | "quiz" | "loto"] = enabled === true;
+    broadcastToAll({ type: "game_toggle", game, enabled: gameEnabled[game as "course" | "quiz" | "loto"] });
+    res.json({ success: true, game, enabled: gameEnabled[game as "course" | "quiz" | "loto"] });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

@@ -58,11 +58,13 @@ export default function LotoScreen({ navigation }: any) {
   const [selected, setSelected] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<DrawResult | null>(null);
+  const [pendingTicket, setPendingTicket] = useState<{ chosenNumbers: number[]; ticketId: string } | null>(null);
   const [history, setHistory] = useState<LotoTicket[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const confirmOpacity = useRef(new Animated.Value(0)).current;
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const balance = dbUser?.wallet_balance ?? 0;
 
@@ -91,8 +93,37 @@ export default function LotoScreen({ navigation }: any) {
     loadHistory();
   }, [loadHistory]);
 
+  const startResultPolling = (ticketId: string, chosen: number[]) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const h = await api.getLotoHistory(user?.uid);
+        const found = h.find((t: LotoTicket) => t.id === ticketId && t.status === "completed");
+        if (found) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setPendingTicket(null);
+          setHistory(h);
+          await refreshUser?.();
+          setResult({
+            drawnNumbers: found.drawn_numbers ?? [],
+            matchedCount: found.matched_count ?? 0,
+            prizeAmount: found.prize_amount ?? 0,
+            newBalance: (dbUser?.wallet_balance ?? 0) + (found.prize_amount ?? 0),
+            isJackpot: (found.matched_count ?? 0) >= 5,
+            chosenNumbers: chosen,
+          });
+        }
+      } catch {}
+    }, 8000);
+  };
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
   const toggleNumber = (n: number) => {
-    if (result) return;
+    if (result || pendingTicket) return;
     setSelected((prev) => {
       if (prev.includes(n)) return prev.filter((x) => x !== n);
       if (prev.length >= PICK) return prev;
@@ -124,18 +155,24 @@ export default function LotoScreen({ navigation }: any) {
       await refreshUser?.();
       await loadHistory();
 
-      showConfirmToast();
-
-      await new Promise((r) => setTimeout(r, 2200));
-
-      setResult({
-        drawnNumbers: res.drawnNumbers,
-        matchedCount: res.matched_count ?? res.matchedCount,
-        prizeAmount: res.prize_amount ?? res.prizeAmount,
-        newBalance: res.new_balance ?? res.newBalance,
-        isJackpot: res.is_jackpot ?? res.isJackpot,
-        chosenNumbers: selected,
-      });
+      if (res.pending) {
+        const ticketId = res.ticket?.id;
+        const chosen = [...selected];
+        setPendingTicket({ chosenNumbers: chosen, ticketId });
+        showConfirmToast();
+        if (ticketId) startResultPolling(ticketId, chosen);
+      } else {
+        showConfirmToast();
+        await new Promise((r) => setTimeout(r, 2200));
+        setResult({
+          drawnNumbers: res.drawn_numbers ?? res.drawnNumbers ?? [],
+          matchedCount: res.matched_count ?? res.matchedCount ?? 0,
+          prizeAmount: res.prize_amount ?? res.prizeAmount ?? 0,
+          newBalance: res.new_balance ?? res.newBalance ?? balance,
+          isJackpot: res.is_jackpot ?? res.isJackpot ?? false,
+          chosenNumbers: selected,
+        });
+      }
     } catch (err: any) {
       Alert.alert("Erreur", err?.message || "Une erreur est survenue");
     } finally {
@@ -146,6 +183,8 @@ export default function LotoScreen({ navigation }: any) {
   const handleReset = () => {
     setSelected([]);
     setResult(null);
+    setPendingTicket(null);
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   };
 
   const getResultColor = () => {
@@ -262,11 +301,11 @@ export default function LotoScreen({ navigation }: any) {
 
         <View style={styles.selectionBar}>
           <Text style={styles.selectionLabel}>
-            {result
-              ? "Tirage effectué"
+            {result ? "Tirage effectué"
+              : pendingTicket ? `🎟️ Ticket en attente — ${pendingTicket.chosenNumbers.join(" - ")}`
               : `Numéros choisis : ${selected.length} / ${PICK}`}
           </Text>
-          {selected.length > 0 && !result && (
+          {selected.length > 0 && !result && !pendingTicket && (
             <TouchableOpacity onPress={() => setSelected([])}>
               <Text style={styles.clearText}>Effacer</Text>
             </TouchableOpacity>
@@ -276,6 +315,31 @@ export default function LotoScreen({ navigation }: any) {
         <View style={styles.grid}>
           {Array.from({ length: TOTAL }, (_, i) => i + 1).map(renderNumber)}
         </View>
+
+        {pendingTicket && !result && (
+          <View style={[styles.resultCard, { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight }]}>
+            <Ionicons name="time-outline" size={40} color={COLORS.primary} />
+            <Text style={[styles.resultTitle, { color: COLORS.primary }]}>🎟️ Ticket enregistré !</Text>
+            <Text style={{ textAlign: "center", color: COLORS.textSub, fontSize: 13, marginBottom: 8, lineHeight: 20 }}>
+              Vos numéros ont été enregistrés.{"\n"}Les résultats seront publiés lors du prochain tirage admin.{"\n"}La page se mettra à jour automatiquement.
+            </Text>
+            <View style={styles.drawnRow}>
+              <Text style={styles.drawnLabel}>Vos numéros :</Text>
+              <View style={styles.drawnNumbers}>
+                {pendingTicket.chosenNumbers.map(n => (
+                  <View key={n} style={[styles.drawnBall, { backgroundColor: COLORS.primary }]}>
+                    <Text style={[styles.drawnBallText, { color: "#fff" }]}>{n}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+            <ActivityIndicator color={COLORS.primary} style={{ marginTop: 8, marginBottom: 4 }} />
+            <Text style={{ color: COLORS.textSub, fontSize: 12 }}>En attente du tirage…</Text>
+            <TouchableOpacity style={[styles.playAgainBtn, { backgroundColor: COLORS.border, marginTop: 12 }]} onPress={handleReset}>
+              <Text style={[styles.playAgainText, { color: COLORS.text }]}>Fermer et jouer un autre ticket</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {result && (
           <View style={[styles.resultCard, { borderColor: getResultColor() }]}>
@@ -317,7 +381,7 @@ export default function LotoScreen({ navigation }: any) {
           </View>
         )}
 
-        {!result && (
+        {!result && !pendingTicket && (
           <TouchableOpacity
             style={[
               styles.buyBtn,
@@ -332,7 +396,7 @@ export default function LotoScreen({ navigation }: any) {
             {loading ? (
               <View style={styles.buyInner}>
                 <ActivityIndicator color="#fff" size="small" />
-                <Text style={styles.buyText}>Tirage en cours…</Text>
+                <Text style={styles.buyText}>Enregistrement du ticket…</Text>
               </View>
             ) : (
               <View style={styles.buyInner}>
@@ -394,14 +458,19 @@ export default function LotoScreen({ navigation }: any) {
               keyExtractor={(t) => t.id}
               contentContainerStyle={{ padding: 16 }}
               renderItem={({ item }) => {
-                const won = item.prize_amount > 0;
-                const jackpot = item.matched_count === 5;
+                const isPending = item.status === "pending";
+                const won = !isPending && (item.prize_amount ?? 0) > 0;
+                const jackpot = !isPending && item.matched_count === 5;
                 return (
-                  <View style={[styles.historyCard, won && { borderLeftColor: jackpot ? COLORS.gold : COLORS.primary }]}>
+                  <View style={[styles.historyCard,
+                    isPending ? { borderLeftColor: COLORS.primary, borderLeftWidth: 4 }
+                    : won ? { borderLeftColor: jackpot ? COLORS.gold : COLORS.primary }
+                    : {}
+                  ]}>
                     <View style={styles.historyTop}>
                       <View style={styles.historyNumbers}>
                         {(item.chosen_numbers ?? []).map((n) => {
-                          const isMatch = (item.drawn_numbers ?? []).includes(n);
+                          const isMatch = !isPending && (item.drawn_numbers ?? []).includes(n);
                           return (
                             <View key={n} style={[styles.histBall, isMatch && { backgroundColor: COLORS.primary }]}>
                               <Text style={[styles.histBallText, isMatch && { color: "#fff" }]}>{n}</Text>
@@ -410,10 +479,14 @@ export default function LotoScreen({ navigation }: any) {
                         })}
                       </View>
                       <View style={styles.histResult}>
-                        <Text style={[styles.histWon, { color: won ? (jackpot ? COLORS.gold : COLORS.primary) : COLORS.red }]}>
-                          {jackpot ? "JACKPOT !" : won ? `+${item.prize_amount} FCFA` : `-${TICKET_PRICE} FCFA`}
-                        </Text>
-                        <Text style={styles.histMatch}>{item.matched_count} bon(s)</Text>
+                        {isPending ? (
+                          <Text style={[styles.histWon, { color: COLORS.primary, fontSize: 12 }]}>⏳ En attente</Text>
+                        ) : (
+                          <Text style={[styles.histWon, { color: won ? (jackpot ? COLORS.gold : COLORS.primary) : COLORS.red }]}>
+                            {jackpot ? "JACKPOT !" : won ? `+${item.prize_amount} FCFA` : `-${TICKET_PRICE} FCFA`}
+                          </Text>
+                        )}
+                        {!isPending && <Text style={styles.histMatch}>{item.matched_count} bon(s)</Text>}
                       </View>
                     </View>
                     <Text style={styles.histDate}>{formatDate(item.created_at)}</Text>

@@ -42,6 +42,113 @@ function Card({ children, style }: { children: React.ReactNode; style?: any }) {
   return <View style={[styles.card, style]}>{children}</View>;
 }
 
+function LotoDrawPanel({ adminEmail }: { adminEmail: string }) {
+  const [stats, setStats] = React.useState<{ pending_count: number; pot_total: number; last_draw_at: string | null } | null>(null);
+  const [statsLoading, setStatsLoading] = React.useState(false);
+  const [drawing, setDrawing] = React.useState(false);
+  const [lastResult, setLastResult] = React.useState<{ drawn_numbers: number[]; nb_participants: number; nb_winners: number; total_prizes_paid: number } | null>(null);
+
+  const fetchStats = React.useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/loto/stats?email=${encodeURIComponent(adminEmail)}`);
+      const d = await res.json();
+      if (res.ok) setStats(d);
+    } catch {}
+    setStatsLoading(false);
+  }, [adminEmail]);
+
+  React.useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  const handleDraw = () => {
+    Alert.alert(
+      "🎰 Lancer le tirage Loto ?",
+      `${stats?.pending_count ?? 0} ticket(s) en attente.\nLe tirage va être effectué et les gains distribués immédiatement.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "🎰 Lancer le tirage",
+          onPress: async () => {
+            setDrawing(true);
+            try {
+              const res = await fetch(`${BASE_URL}/api/admin/loto/draw`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: adminEmail }),
+              });
+              const d = await res.json();
+              if (res.ok) {
+                setLastResult(d);
+                fetchStats();
+                Alert.alert(
+                  "✅ Tirage effectué !",
+                  `Numéros : ${d.drawn_numbers?.join(" - ")}\n${d.nb_participants} participant(s)\n${d.nb_winners} gagnant(s)\n${d.total_prizes_paid?.toLocaleString()} FCFA distribués`
+                );
+              } else Alert.alert("Erreur", d.error);
+            } catch { Alert.alert("Erreur réseau"); }
+            setDrawing(false);
+          },
+        },
+      ]
+    );
+  };
+
+  if (statsLoading) return <ActivityIndicator color={C.primary} style={{ marginVertical: 12 }} />;
+
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <View style={{ flex: 1, backgroundColor: "#E8F5E9", borderRadius: 10, padding: 12, alignItems: "center" }}>
+          <Text style={{ fontSize: 22, fontWeight: "800", color: C.primary }}>{stats?.pending_count ?? 0}</Text>
+          <Text style={{ fontSize: 12, color: C.sub }}>Tickets en attente</Text>
+        </View>
+        <View style={{ flex: 1, backgroundColor: "#FFF8E1", borderRadius: 10, padding: 12, alignItems: "center" }}>
+          <Text style={{ fontSize: 22, fontWeight: "800", color: C.gold }}>{(stats?.pot_total ?? 0).toLocaleString()}</Text>
+          <Text style={{ fontSize: 12, color: C.sub }}>FCFA en jeu</Text>
+        </View>
+      </View>
+      {stats?.last_draw_at && (
+        <Text style={{ fontSize: 12, color: C.sub, textAlign: "center" }}>
+          Dernier tirage : {new Date(stats.last_draw_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+        </Text>
+      )}
+      {lastResult && (
+        <View style={{ backgroundColor: "#E8F5E9", borderRadius: 10, padding: 12 }}>
+          <Text style={{ fontWeight: "700", color: C.success, marginBottom: 4 }}>Résultat du dernier tirage</Text>
+          <Text style={{ color: C.text, fontSize: 13 }}>Numéros : <Text style={{ fontWeight: "700" }}>{lastResult.drawn_numbers?.join(" - ")}</Text></Text>
+          <Text style={{ color: C.text, fontSize: 13 }}>Gagnants : {lastResult.nb_winners} / {lastResult.nb_participants}</Text>
+          <Text style={{ color: C.text, fontSize: 13 }}>Distribués : {lastResult.total_prizes_paid?.toLocaleString()} FCFA</Text>
+        </View>
+      )}
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <TouchableOpacity
+          style={[styles.bigActionBtn, { flex: 1, backgroundColor: C.sub }]}
+          onPress={fetchStats}
+        >
+          <Text style={styles.bigActionBtnText}>↻ Actualiser</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.bigActionBtn, {
+            flex: 2,
+            backgroundColor: (stats?.pending_count ?? 0) > 0 ? C.gold : C.border,
+            opacity: drawing ? 0.6 : 1,
+          }]}
+          onPress={handleDraw}
+          disabled={drawing || (stats?.pending_count ?? 0) === 0}
+        >
+          {drawing
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={[styles.bigActionBtnText, { color: (stats?.pending_count ?? 0) > 0 ? "#fff" : C.sub }]}>
+                🎰 Lancer le tirage
+                {(stats?.pending_count ?? 0) > 0 ? ` (${stats?.pending_count})` : " — aucun ticket"}
+              </Text>
+          }
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function SectionHeader({ icon, title }: { icon: string; title: string }) {
   return (
     <View style={styles.sectionHeader}>
@@ -79,8 +186,8 @@ export default function AdminScreen() {
   const [quizCorrect, setQuizCorrect] = useState<number | null>(null);
   const [quizSending, setQuizSending] = useState(false);
 
-  const [gameStatus, setGameStatus] = useState({ course: true, quiz: true });
-  const [gameToggling, setGameToggling] = useState({ course: false, quiz: false });
+  const [gameStatus, setGameStatus] = useState({ course: true, quiz: true, loto: true });
+  const [gameToggling, setGameToggling] = useState({ course: false, quiz: false, loto: false });
 
   const [flashTitle, setFlashTitle] = useState("");
   const [flashMessage, setFlashMessage] = useState("");
@@ -300,7 +407,7 @@ export default function AdminScreen() {
     } catch (e: any) { Alert.alert("Erreur", e.message); }
   };
 
-  const handleGameToggle = async (game: "course" | "quiz", value: boolean) => {
+  const handleGameToggle = async (game: "course" | "quiz" | "loto", value: boolean) => {
     setGameToggling(prev => ({ ...prev, [game]: true }));
     try {
       const res = await fetch(`${BASE_URL}/api/admin/game-toggle`, {
@@ -557,7 +664,7 @@ export default function AdminScreen() {
                   : <Switch value={gameStatus.course} onValueChange={v => handleGameToggle("course", v)} trackColor={{ false: "#E0E0E0", true: "#A5D6A7" }} thumbColor={gameStatus.course ? C.primary : "#9E9E9E"} />
                 }
               </View>
-              <View style={[styles.toggleRow, { borderBottomWidth: 0 }]}>
+              <View style={styles.toggleRow}>
                 <View style={styles.toggleInfo}>
                   <Text style={styles.toggleLabel}>🎯 Live Quiz</Text>
                   <Text style={styles.toggleSub}>{gameStatus.quiz ? "Activé — nouvelles sessions possibles" : "Désactivé — création bloquée"}</Text>
@@ -565,6 +672,16 @@ export default function AdminScreen() {
                 {gameToggling.quiz
                   ? <ActivityIndicator size="small" color={C.primary} />
                   : <Switch value={gameStatus.quiz} onValueChange={v => handleGameToggle("quiz", v)} trackColor={{ false: "#E0E0E0", true: "#A5D6A7" }} thumbColor={gameStatus.quiz ? C.primary : "#9E9E9E"} />
+                }
+              </View>
+              <View style={[styles.toggleRow, { borderBottomWidth: 0 }]}>
+                <View style={styles.toggleInfo}>
+                  <Text style={styles.toggleLabel}>🎰 Loto 5/30</Text>
+                  <Text style={styles.toggleSub}>{gameStatus.loto ? "Activé — achat de tickets possible" : "Désactivé — achat bloqué"}</Text>
+                </View>
+                {gameToggling.loto
+                  ? <ActivityIndicator size="small" color={C.primary} />
+                  : <Switch value={gameStatus.loto} onValueChange={v => handleGameToggle("loto", v)} trackColor={{ false: "#E0E0E0", true: "#A5D6A7" }} thumbColor={gameStatus.loto ? C.primary : "#9E9E9E"} />
                 }
               </View>
               <View style={styles.resetRow}>
@@ -977,6 +1094,13 @@ export default function AdminScreen() {
                 </Card>
               )
             }
+
+            <View style={{ marginTop: 20 }}>
+              <Text style={styles.sectionTitle}>🎰 Loto 5/30 — Tirage Admin</Text>
+              <Card>
+                <LotoDrawPanel adminEmail={adminEmail} />
+              </Card>
+            </View>
 
             <View style={{ marginTop: 20 }}>
               <Text style={styles.sectionTitle}>🎯 Quiz — Ajouter une Question</Text>

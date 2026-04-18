@@ -13,6 +13,9 @@ import JeuxScreen from "../screens/JeuxScreen";
 import LotoScreen from "../screens/LotoScreen";
 import CourseDeRueScreen from "../screens/CourseDeRueScreen";
 import LiveQuizScreen from "../screens/LiveQuizScreen";
+import ScratchScreen from "../screens/ScratchScreen";
+import QuizQuartierScreen from "../screens/QuizQuartierScreen";
+import KenoScreen from "../screens/KenoScreen";
 import { useAuth } from "../context/AuthContext";
 import { BASE_URL } from "../services/api";
 
@@ -110,6 +113,9 @@ function JeuxNavigator() {
       <JeuxStack.Screen name="Loto" component={LotoScreen} />
       <JeuxStack.Screen name="CourseDeRue" component={CourseDeRueScreen} />
       <JeuxStack.Screen name="LiveQuiz" component={LiveQuizScreen} />
+      <JeuxStack.Screen name="Scratch" component={ScratchScreen} />
+      <JeuxStack.Screen name="QuizQuartier" component={QuizQuartierScreen} />
+      <JeuxStack.Screen name="Keno" component={KenoScreen} />
     </JeuxStack.Navigator>
   );
 }

@@ -2538,6 +2538,163 @@ app.patch("/api/quiz/sessions/:id/schedule", async (req, res) => {
   }
 });
 
+// ─── Scratch Card Game ────────────────────────────────────────────────
+const SCRATCH_SYMBOLS = ["🍋", "🍊", "🍇", "⭐", "💎", "🎯", "🔔", "🌸", "🍀"];
+const SCRATCH_PRIZES: Record<string, number> = {
+  "🍋": 200, "🍊": 300, "🍇": 500, "⭐": 750, "💎": 2000, "🎯": 1500, "🔔": 400, "🌸": 350, "🍀": 1000,
+};
+const SCRATCH_COST = 50;
+
+function generateScratchGrid(): string[] {
+  const grid: string[] = [];
+  const rand = Math.random();
+  if (rand < 0.30) {
+    const winSymbol = SCRATCH_SYMBOLS[Math.floor(Math.random() * SCRATCH_SYMBOLS.length)];
+    const winRow = Math.floor(Math.random() * 3);
+    for (let i = 0; i < 9; i++) {
+      const row = Math.floor(i / 3);
+      if (row === winRow) { grid.push(winSymbol); }
+      else {
+        let s: string;
+        do { s = SCRATCH_SYMBOLS[Math.floor(Math.random() * SCRATCH_SYMBOLS.length)]; } while (s === winSymbol);
+        grid.push(s);
+      }
+    }
+  } else {
+    for (let i = 0; i < 9; i++) grid.push(SCRATCH_SYMBOLS[Math.floor(Math.random() * SCRATCH_SYMBOLS.length)]);
+    const rows = [[0,1,2],[3,4,5],[6,7,8]];
+    rows.forEach(r => {
+      if (grid[r[0]] === grid[r[1]] && grid[r[1]] === grid[r[2]]) grid[r[2]] = SCRATCH_SYMBOLS.find(s => s !== grid[r[0]])!;
+    });
+  }
+  return grid;
+}
+
+function checkScratchWin(grid: string[]): { won: boolean; prize: number; winLine: number[] } {
+  const rows = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  for (const line of rows) {
+    const [a,b,c] = line;
+    if (grid[a] === grid[b] && grid[b] === grid[c]) {
+      return { won: true, prize: SCRATCH_PRIZES[grid[a]] || 200, winLine: line };
+    }
+  }
+  return { won: false, prize: 0, winLine: [] };
+}
+
+app.post("/api/games/scratch/play", async (req, res) => {
+  const { uid } = req.body;
+  if (!uid) return res.status(400).json({ error: "uid requis" });
+  try {
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.walletBalance < SCRATCH_COST) return res.status(400).json({ error: `Solde insuffisant. Il vous faut ${SCRATCH_COST} FCFA.` });
+    const newBalance = user.walletBalance - SCRATCH_COST;
+    await db.update(users).set({ walletBalance: newBalance }).where(eq(users.firebaseUid, uid));
+    await db.insert(walletTransactions).values({ userId: uid, type: "scratch_play", amount: -SCRATCH_COST, description: "Ticket grattage" });
+    const grid = generateScratchGrid();
+    const { won, prize, winLine } = checkScratchWin(grid);
+    let finalBalance = newBalance;
+    if (won && prize > 0) {
+      finalBalance = newBalance + prize;
+      await db.update(users).set({ walletBalance: finalBalance }).where(eq(users.firebaseUid, uid));
+      await db.insert(walletTransactions).values({ userId: uid, type: "scratch_win", amount: prize, description: `Gain grattage : ${prize} FCFA` });
+    }
+    broadcastToUser(uid, { type: "balance_update", balance: finalBalance });
+    res.json({ grid, won, prize, winLine, balance: finalBalance });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// ─── Quiz Quartier Game ────────────────────────────────────────────────
+const QUIZ_BANK = [
+  { q: "Quelle est la monnaie officielle du Sénégal ?", opts: ["Franc CFA", "Dalasi", "Cedi", "Naira"], a: 0 },
+  { q: "Quelle ville est la capitale économique de la Côte d'Ivoire ?", opts: ["Yamoussoukro", "Abidjan", "Bouaké", "Man"], a: 1 },
+  { q: "Combien de joueurs composent une équipe de football ?", opts: ["9", "10", "11", "12"], a: 2 },
+  { q: "Quel fruit est le plus consommé en Afrique de l'Ouest ?", opts: ["Mangue", "Ananas", "Banane plantain", "Orange"], a: 2 },
+  { q: "Le marché de gros sert à quoi principalement ?", opts: ["Achats en détail", "Vente en gros aux marchands", "Restauration", "Location"], a: 1 },
+  { q: "Quel est le rôle d'un chef de quartier ?", opts: ["Collecter les impôts", "Gérer les litiges locaux", "Diriger la mairie", "Enseigner"], a: 1 },
+  { q: "Quelle cérémonie marque la fin du mois de Ramadan ?", opts: ["Noël", "Tabaski", "Aïd El Fitr", "Magal"], a: 2 },
+  { q: "En quelle année l'Afrique du Sud a-t-elle accueilli la Coupe du Monde ?", opts: ["2006", "2008", "2010", "2014"], a: 2 },
+  { q: "Le tontine est un système de quoi ?", opts: ["Épargne collective", "Transport", "Vente groupée", "Jeu de hasard"], a: 0 },
+  { q: "Quel organe filtre le sang dans le corps humain ?", opts: ["Foie", "Rein", "Poumon", "Cœur"], a: 1 },
+  { q: "Quel est le principal ingrédient du thiéboudienne ?", opts: ["Poulet", "Riz", "Mil", "Igname"], a: 1 },
+  { q: "Combien de jours dure un mois lunaire approximativement ?", opts: ["28", "29.5", "31", "30"], a: 1 },
+  { q: "La téléphonie mobile permet principalement de faire quoi avec Mobile Money ?", opts: ["Regarder des films", "Transférer de l'argent", "Jouer aux jeux vidéo", "Envoyer des emails"], a: 1 },
+  { q: "Le soleil se lève à quel point cardinal ?", opts: ["Nord", "Sud", "Est", "Ouest"], a: 2 },
+  { q: "Quel sport est le plus populaire en Afrique ?", opts: ["Basketball", "Football", "Lutte", "Athlétisme"], a: 1 },
+  { q: "Combien vaut 1 FCFA en centimes CFA ?", opts: ["50", "100", "1", "10"], a: 2 },
+  { q: "Un marché hebdomadaire a lieu combien de fois par semaine ?", opts: ["Tous les jours", "1 fois", "3 fois", "5 fois"], a: 1 },
+  { q: "Quel animal est l'emblème de la Côte d'Ivoire ?", opts: ["Lion", "Éléphant", "Panthère", "Gazelle"], a: 1 },
+  { q: "Qu'est-ce qu'un griot traditionnel ?", opts: ["Un artisan", "Un gardien de la tradition orale", "Un chef religieux", "Un commerçant"], a: 1 },
+  { q: "Le boubou est quel type de vêtement ?", opts: ["Chaussure", "Vêtement traditionnel", "Coiffure", "Bijou"], a: 1 },
+];
+const QUIZ_COST = 25;
+const QUIZ_WIN = 100;
+
+app.get("/api/games/quiz-quartier/question", async (req, res) => {
+  const idx = Math.floor(Math.random() * QUIZ_BANK.length);
+  const { q, opts, a } = QUIZ_BANK[idx];
+  res.json({ id: idx, question: q, options: opts, correctIndex: a });
+});
+
+app.post("/api/games/quiz-quartier/play", async (req, res) => {
+  const { uid, questionId, answerIndex } = req.body;
+  if (uid === undefined || questionId === undefined || answerIndex === undefined) return res.status(400).json({ error: "uid, questionId, answerIndex requis" });
+  try {
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.walletBalance < QUIZ_COST) return res.status(400).json({ error: `Solde insuffisant. Il vous faut ${QUIZ_COST} FCFA.` });
+    const question = QUIZ_BANK[questionId];
+    if (!question) return res.status(400).json({ error: "Question introuvable" });
+    const correct = question.a === answerIndex;
+    const debited = user.walletBalance - QUIZ_COST;
+    await db.update(users).set({ walletBalance: debited }).where(eq(users.firebaseUid, uid));
+    await db.insert(walletTransactions).values({ userId: uid, type: "quiz_quartier_play", amount: -QUIZ_COST, description: "Quiz Quartier — mise" });
+    let finalBalance = debited;
+    if (correct) {
+      finalBalance = debited + QUIZ_WIN;
+      await db.update(users).set({ walletBalance: finalBalance }).where(eq(users.firebaseUid, uid));
+      await db.insert(walletTransactions).values({ userId: uid, type: "quiz_quartier_win", amount: QUIZ_WIN, description: "Quiz Quartier — bonne réponse" });
+    }
+    broadcastToUser(uid, { type: "balance_update", balance: finalBalance });
+    res.json({ correct, correctIndex: question.a, prize: correct ? QUIZ_WIN : 0, balance: finalBalance });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// ─── Keno Express Game ─────────────────────────────────────────────────
+const KENO_COST = 75;
+const KENO_PRIZES: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 150, 4: 750, 5: 5000 };
+
+app.post("/api/games/keno/play", async (req, res) => {
+  const { uid, picks } = req.body;
+  if (!uid || !Array.isArray(picks) || picks.length !== 5) return res.status(400).json({ error: "uid + picks[5] requis" });
+  if (picks.some((n: any) => typeof n !== "number" || n < 1 || n > 30)) return res.status(400).json({ error: "picks: 5 numéros entre 1 et 30" });
+  try {
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.walletBalance < KENO_COST) return res.status(400).json({ error: `Solde insuffisant. Il vous faut ${KENO_COST} FCFA.` });
+    const all = Array.from({ length: 30 }, (_, i) => i + 1);
+    const drawn: number[] = [];
+    while (drawn.length < 10) {
+      const idx = Math.floor(Math.random() * all.length);
+      drawn.push(all.splice(idx, 1)[0]);
+    }
+    drawn.sort((a, b) => a - b);
+    const matches = picks.filter((p: number) => drawn.includes(p)).length;
+    const prize = KENO_PRIZES[matches] || 0;
+    const debited = user.walletBalance - KENO_COST;
+    await db.update(users).set({ walletBalance: debited }).where(eq(users.firebaseUid, uid));
+    await db.insert(walletTransactions).values({ userId: uid, type: "keno_play", amount: -KENO_COST, description: "Keno Express — mise" });
+    let finalBalance = debited;
+    if (prize > 0) {
+      finalBalance = debited + prize;
+      await db.update(users).set({ walletBalance: finalBalance }).where(eq(users.firebaseUid, uid));
+      await db.insert(walletTransactions).values({ userId: uid, type: "keno_win", amount: prize, description: `Keno Express — ${matches} numéro(s) : ${prize} FCFA` });
+    }
+    broadcastToUser(uid, { type: "balance_update", balance: finalBalance });
+    res.json({ drawn, picks, matches, prize, balance: finalBalance });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
 // SPA fallback : toutes les routes inconnues renvoient index.html sans cache
 app.use((_req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");

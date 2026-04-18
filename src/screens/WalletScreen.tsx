@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   RefreshControl, Modal, TextInput, Alert, ActivityIndicator,
-  Platform, Animated,
+  Platform, Animated, StyleProp, ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
@@ -10,6 +10,32 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
 import { BASE_URL } from "../services/api";
 import RewardedVideoButton from "../components/RewardedVideoButton";
+
+function BottomSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
+  if (Platform.OS === "web") {
+    if (!visible) return null;
+    return (
+      <View style={webSheetStyles.fixed as any}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} activeOpacity={1} />
+        <View style={webSheetStyles.sheet}>{children}</View>
+      </View>
+    );
+  }
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={webSheetStyles.overlay}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} activeOpacity={1} />
+        <View style={webSheetStyles.sheet}>{children}</View>
+      </View>
+    </Modal>
+  );
+}
+
+const webSheetStyles = {
+  fixed: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end", zIndex: 9999, display: "flex", flexDirection: "column" } as any,
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" as const },
+  sheet: { backgroundColor: "#fff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40, gap: 16 } as any,
+};
 
 const C = {
   primary: "#2E7D32",
@@ -572,183 +598,175 @@ function OtpDisplay({ otp }: { otp: string }) {
 function WithdrawModal({ step, onClose, phone, setPhone, provider, setProvider, amount, setAmount, balance, otpGenerated, otpInput, setOtpInput, loading, onRequest, onConfirm, otpExpiry }: any) {
   const withdrawAmount = parseInt(amount) || balance;
   return (
-    <Modal visible={step > 0} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalSheet}>
-          <View style={styles.modalHandle} />
-          <View style={styles.modalHeaderRow}>
-            <Text style={styles.modalTitle}>{step === 1 ? "💸 Demander un retrait" : "🔐 Confirmer le retrait"}</Text>
-            <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color={C.muted} /></TouchableOpacity>
-          </View>
-
-          {step === 1 && (
-            <>
-              <View style={styles.amountBox}>
-                <Text style={styles.amountBoxLabel}>Montant disponible</Text>
-                <Text style={styles.amountBoxValue}>{balance.toLocaleString()} FCFA</Text>
-              </View>
-              <Text style={styles.fieldLabel}>Montant à retirer (min 1 000)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={`${balance.toLocaleString()} FCFA (tout retirer)`}
-                value={amount}
-                onChangeText={setAmount}
-                keyboardType="numeric"
-                placeholderTextColor={C.muted}
-              />
-              <Text style={styles.fieldLabel}>Opérateur Mobile Money</Text>
-              <View style={styles.providerGrid}>
-                {PROVIDERS.map(p => (
-                  <TouchableOpacity key={p.id} style={[styles.providerChip, provider.id === p.id && styles.providerChipActive]} onPress={() => setProvider(p)}>
-                    <Text style={styles.providerEmoji}>{p.emoji}</Text>
-                    <Text style={[styles.providerName, provider.id === p.id && { color: C.primary, fontWeight: "700" as any }]}>{p.name}</Text>
-                    {provider.id === p.id && <Ionicons name="checkmark-circle" size={14} color={C.primary} />}
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <Text style={styles.fieldLabel}>Numéro {provider.name}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: 07 00 00 00 00"
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-                maxLength={15}
-                placeholderTextColor={C.muted}
-              />
-              <View style={styles.noticeBox}>
-                <Ionicons name="information-circle" size={16} color="#5D4037" />
-                <Text style={styles.noticeText}>Un code OTP sera généré pour sécuriser votre retrait.</Text>
-              </View>
-              <TouchableOpacity style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]} onPress={onRequest} disabled={loading || !phone.trim()}>
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Générer le code de sécurité →</Text>}
-              </TouchableOpacity>
-            </>
-          )}
-
-          {step === 2 && (
-            <>
-              <View style={styles.confirmSummary}>
-                <Text style={styles.confirmSummaryLabel}>Retrait de</Text>
-                <Text style={styles.confirmSummaryAmount}>{withdrawAmount.toLocaleString()} FCFA</Text>
-                <Text style={styles.confirmSummaryDetail}>{provider.emoji} {provider.name} · {phone}</Text>
-              </View>
-              {otpGenerated && <OtpDisplay otp={otpGenerated} />}
-              <Text style={styles.fieldLabel}>Entrez votre code de confirmation</Text>
-              <TextInput
-                style={[styles.input, styles.otpInput]}
-                placeholder="_ _ _ _ _ _"
-                value={otpInput}
-                onChangeText={t => setOtpInput(t.replace(/\D/g, "").slice(0, 6))}
-                keyboardType="numeric"
-                maxLength={6}
-                placeholderTextColor={C.muted}
-                textAlign="center"
-              />
-              {otpExpiry && (
-                <Text style={styles.expiryText}>⏱️ Code valide jusqu'à {new Date(otpExpiry).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</Text>
-              )}
-              <TouchableOpacity style={[styles.primaryBtn, (otpInput.length !== 6 || loading) && styles.primaryBtnDisabled]} onPress={onConfirm} disabled={otpInput.length !== 6 || loading}>
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>✅ Valider le retrait</Text>}
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => { setOtpInput(""); onRequest(); }}>
-                <Text style={styles.secondaryBtnText}>↻ Renvoyer le code</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+    <BottomSheet visible={step > 0} onClose={onClose}>
+      <View style={styles.modalHandle} />
+      <View style={styles.modalHeaderRow}>
+        <Text style={styles.modalTitle}>{step === 1 ? "💸 Demander un retrait" : "🔐 Confirmer le retrait"}</Text>
+        <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color={C.muted} /></TouchableOpacity>
       </View>
-    </Modal>
+
+      {step === 1 && (
+        <>
+          <View style={styles.amountBox}>
+            <Text style={styles.amountBoxLabel}>Montant disponible</Text>
+            <Text style={styles.amountBoxValue}>{balance.toLocaleString()} FCFA</Text>
+          </View>
+          <Text style={styles.fieldLabel}>Montant à retirer (min 1 000)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder={`${balance.toLocaleString()} FCFA (tout retirer)`}
+            value={amount}
+            onChangeText={setAmount}
+            keyboardType="numeric"
+            placeholderTextColor={C.muted}
+          />
+          <Text style={styles.fieldLabel}>Opérateur Mobile Money</Text>
+          <View style={styles.providerGrid}>
+            {PROVIDERS.map(p => (
+              <TouchableOpacity key={p.id} style={[styles.providerChip, provider.id === p.id && styles.providerChipActive]} onPress={() => setProvider(p)}>
+                <Text style={styles.providerEmoji}>{p.emoji}</Text>
+                <Text style={[styles.providerName, provider.id === p.id && { color: C.primary, fontWeight: "700" as any }]}>{p.name}</Text>
+                {provider.id === p.id && <Ionicons name="checkmark-circle" size={14} color={C.primary} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.fieldLabel}>Numéro {provider.name}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: 07 00 00 00 00"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+            maxLength={15}
+            placeholderTextColor={C.muted}
+          />
+          <View style={styles.noticeBox}>
+            <Ionicons name="information-circle" size={16} color="#5D4037" />
+            <Text style={styles.noticeText}>Un code OTP sera généré pour sécuriser votre retrait.</Text>
+          </View>
+          <TouchableOpacity style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]} onPress={onRequest} disabled={loading || !phone.trim()}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Générer le code de sécurité →</Text>}
+          </TouchableOpacity>
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          <View style={styles.confirmSummary}>
+            <Text style={styles.confirmSummaryLabel}>Retrait de</Text>
+            <Text style={styles.confirmSummaryAmount}>{withdrawAmount.toLocaleString()} FCFA</Text>
+            <Text style={styles.confirmSummaryDetail}>{provider.emoji} {provider.name} · {phone}</Text>
+          </View>
+          {otpGenerated && <OtpDisplay otp={otpGenerated} />}
+          <Text style={styles.fieldLabel}>Entrez votre code de confirmation</Text>
+          <TextInput
+            style={[styles.input, styles.otpInput]}
+            placeholder="_ _ _ _ _ _"
+            value={otpInput}
+            onChangeText={t => setOtpInput(t.replace(/\D/g, "").slice(0, 6))}
+            keyboardType="numeric"
+            maxLength={6}
+            placeholderTextColor={C.muted}
+            textAlign="center"
+          />
+          {otpExpiry && (
+            <Text style={styles.expiryText}>⏱️ Code valide jusqu'à {new Date(otpExpiry).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</Text>
+          )}
+          <TouchableOpacity style={[styles.primaryBtn, (otpInput.length !== 6 || loading) && styles.primaryBtnDisabled]} onPress={onConfirm} disabled={otpInput.length !== 6 || loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>✅ Valider le retrait</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => { setOtpInput(""); onRequest(); }}>
+            <Text style={styles.secondaryBtnText}>↻ Renvoyer le code</Text>
+          </TouchableOpacity>
+        </>
+      )}
+    </BottomSheet>
   );
 }
 
 function DepositModal({ step, onClose, phone, setPhone, provider, setProvider, amount, setAmount, otpGenerated, otpInput, setOtpInput, loading, onRequest, onConfirm }: any) {
   return (
-    <Modal visible={step > 0} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalSheet}>
-          <View style={styles.modalHandle} />
-          <View style={styles.modalHeaderRow}>
-            <Text style={styles.modalTitle}>{step === 1 ? "📥 Déposer des fonds" : "🔐 Confirmer le dépôt"}</Text>
-            <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color={C.muted} /></TouchableOpacity>
-          </View>
-
-          {step === 1 && (
-            <>
-              <Text style={styles.fieldLabel}>Montant à déposer (min 500 FCFA)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: 5000"
-                value={amount}
-                onChangeText={setAmount}
-                keyboardType="numeric"
-                placeholderTextColor={C.muted}
-              />
-              <Text style={styles.fieldLabel}>Votre opérateur Mobile Money</Text>
-              <View style={styles.providerGrid}>
-                {PROVIDERS.map(p => (
-                  <TouchableOpacity key={p.id} style={[styles.providerChip, provider.id === p.id && styles.providerChipActive]} onPress={() => setProvider(p)}>
-                    <Text style={styles.providerEmoji}>{p.emoji}</Text>
-                    <Text style={[styles.providerName, provider.id === p.id && { color: C.primary, fontWeight: "700" as any }]}>{p.name}</Text>
-                    {provider.id === p.id && <Ionicons name="checkmark-circle" size={14} color={C.primary} />}
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <Text style={styles.fieldLabel}>Votre numéro {provider.name}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: 07 00 00 00 00"
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-                maxLength={15}
-                placeholderTextColor={C.muted}
-              />
-              <View style={styles.noticeBox}>
-                <Ionicons name="information-circle" size={16} color="#5D4037" />
-                <Text style={styles.noticeText}>Un code de confirmation OTP sera généré après votre demande.</Text>
-              </View>
-              <TouchableOpacity style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]} onPress={onRequest} disabled={loading || !phone.trim() || !amount}>
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Continuer →</Text>}
-              </TouchableOpacity>
-            </>
-          )}
-
-          {step === 2 && (
-            <>
-              <View style={styles.confirmSummary}>
-                <Text style={styles.confirmSummaryLabel}>Dépôt de</Text>
-                <Text style={[styles.confirmSummaryAmount, { color: C.success }]}>{parseInt(amount).toLocaleString()} FCFA</Text>
-                <Text style={styles.confirmSummaryDetail}>{provider.emoji} {provider.name} · {phone}</Text>
-              </View>
-              {otpGenerated && <OtpDisplay otp={otpGenerated} />}
-              <View style={styles.depositInstructions}>
-                <Text style={styles.depositInstructionsTitle}>📋 Instructions :</Text>
-                <Text style={styles.depositInstructionsText}>
-                  1. Envoyez {parseInt(amount).toLocaleString()} FCFA sur {provider.name}{"\n"}
-                  2. Entrez le code de confirmation ci-dessous{"\n"}
-                  3. Votre solde sera crédité instantanément
-                </Text>
-              </View>
-              <Text style={styles.fieldLabel}>Code de confirmation</Text>
-              <TextInput
-                style={[styles.input, styles.otpInput]}
-                placeholder="_ _ _ _ _ _"
-                value={otpInput}
-                onChangeText={t => setOtpInput(t.replace(/\D/g, "").slice(0, 6))}
-                keyboardType="numeric"
-                maxLength={6}
-                placeholderTextColor={C.muted}
-                textAlign="center"
-              />
-              <TouchableOpacity style={[styles.primaryBtn, (otpInput.length !== 6 || loading) && styles.primaryBtnDisabled]} onPress={onConfirm} disabled={otpInput.length !== 6 || loading}>
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>✅ Confirmer le dépôt</Text>}
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+    <BottomSheet visible={step > 0} onClose={onClose}>
+      <View style={styles.modalHandle} />
+      <View style={styles.modalHeaderRow}>
+        <Text style={styles.modalTitle}>{step === 1 ? "📥 Déposer des fonds" : "🔐 Confirmer le dépôt"}</Text>
+        <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color={C.muted} /></TouchableOpacity>
       </View>
-    </Modal>
+
+      {step === 1 && (
+        <>
+          <Text style={styles.fieldLabel}>Montant à déposer (min 500 FCFA)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: 5000"
+            value={amount}
+            onChangeText={setAmount}
+            keyboardType="numeric"
+            placeholderTextColor={C.muted}
+          />
+          <Text style={styles.fieldLabel}>Votre opérateur Mobile Money</Text>
+          <View style={styles.providerGrid}>
+            {PROVIDERS.map(p => (
+              <TouchableOpacity key={p.id} style={[styles.providerChip, provider.id === p.id && styles.providerChipActive]} onPress={() => setProvider(p)}>
+                <Text style={styles.providerEmoji}>{p.emoji}</Text>
+                <Text style={[styles.providerName, provider.id === p.id && { color: C.primary, fontWeight: "700" as any }]}>{p.name}</Text>
+                {provider.id === p.id && <Ionicons name="checkmark-circle" size={14} color={C.primary} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.fieldLabel}>Votre numéro {provider.name}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: 07 00 00 00 00"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+            maxLength={15}
+            placeholderTextColor={C.muted}
+          />
+          <View style={styles.noticeBox}>
+            <Ionicons name="information-circle" size={16} color="#5D4037" />
+            <Text style={styles.noticeText}>Un code de confirmation OTP sera généré après votre demande.</Text>
+          </View>
+          <TouchableOpacity style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]} onPress={onRequest} disabled={loading || !phone.trim() || !amount}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Continuer →</Text>}
+          </TouchableOpacity>
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          <View style={styles.confirmSummary}>
+            <Text style={styles.confirmSummaryLabel}>Dépôt de</Text>
+            <Text style={[styles.confirmSummaryAmount, { color: C.success }]}>{parseInt(amount).toLocaleString()} FCFA</Text>
+            <Text style={styles.confirmSummaryDetail}>{provider.emoji} {provider.name} · {phone}</Text>
+          </View>
+          {otpGenerated && <OtpDisplay otp={otpGenerated} />}
+          <View style={styles.depositInstructions}>
+            <Text style={styles.depositInstructionsTitle}>📋 Instructions :</Text>
+            <Text style={styles.depositInstructionsText}>
+              1. Envoyez {parseInt(amount).toLocaleString()} FCFA sur {provider.name}{"\n"}
+              2. Entrez le code de confirmation ci-dessous{"\n"}
+              3. Votre solde sera crédité instantanément
+            </Text>
+          </View>
+          <Text style={styles.fieldLabel}>Code de confirmation</Text>
+          <TextInput
+            style={[styles.input, styles.otpInput]}
+            placeholder="_ _ _ _ _ _"
+            value={otpInput}
+            onChangeText={t => setOtpInput(t.replace(/\D/g, "").slice(0, 6))}
+            keyboardType="numeric"
+            maxLength={6}
+            placeholderTextColor={C.muted}
+            textAlign="center"
+          />
+          <TouchableOpacity style={[styles.primaryBtn, (otpInput.length !== 6 || loading) && styles.primaryBtnDisabled]} onPress={onConfirm} disabled={otpInput.length !== 6 || loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>✅ Confirmer le dépôt</Text>}
+          </TouchableOpacity>
+        </>
+      )}
+    </BottomSheet>
   );
 }
 

@@ -25,6 +25,23 @@ const gameEnabled: { course: boolean; quiz: boolean } = { course: true, quiz: tr
 let serviceFeePercent: number = 0.20;
 let serviceFcfa: number | null = null;
 
+const userConnections = new Map<string, Set<WebSocket>>();
+
+function broadcastToUser(uid: string, msg: object) {
+  const conns = userConnections.get(uid);
+  if (!conns) return;
+  const payload = JSON.stringify(msg);
+  conns.forEach((ws) => { if (ws.readyState === WebSocket.OPEN) ws.send(payload); });
+}
+
+function generateOTP(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function getOtpExpiry(minutes = 10): Date {
+  return new Date(Date.now() + minutes * 60 * 1000);
+}
+
 function toSnake(obj: any): any {
   if (Array.isArray(obj)) return obj.map(toSnake);
   if (obj === null || typeof obj !== "object" || obj instanceof Date) return obj;
@@ -1087,6 +1104,280 @@ app.get("/api/rewards/history/:uid", async (req, res) => {
   }
 });
 
+// ─── Wallet Pro : Solde temps réel (server-side only) ────────────────
+app.get("/api/wallet/balance/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const [user] = await db.select({ walletBalance: users.walletBalance, isBanned: users.isBanned })
+      .from(users).where(eq(users.firebaseUid, uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    res.json({ uid, balance: user.walletBalance ?? 0, is_banned: user.isBanned ?? false, fetched_at: new Date().toISOString() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Wallet Pro : Historique complet transactions ─────────────────────
+app.get("/api/wallet/transactions/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const txList = await db.select({
+      id: walletTransactions.id,
+      type: walletTransactions.type,
+      amount: walletTransactions.amount,
+      description: walletTransactions.description,
+      mobileMoney: walletTransactions.mobileMoney,
+      mobileMoneyProvider: walletTransactions.mobileMoneyProvider,
+      status: walletTransactions.status,
+      createdAt: walletTransactions.createdAt,
+    }).from(walletTransactions)
+      .where(eq(walletTransactions.userId, uid))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(50);
+    res.json(toSnake(txList));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Wallet Pro : Demande de retrait → crée pending + OTP ─────────────
+app.post("/api/wallet/withdraw/request", async (req, res) => {
+  try {
+    const { user_uid, phone_number, provider, amount } = req.body;
+    if (!user_uid || !phone_number || !provider) {
+      return res.status(400).json({ error: "user_uid, phone_number et provider requis" });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, user_uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.isBanned) return res.status(403).json({ error: "Compte suspendu. Contactez le support." });
+
+    const balance = user.walletBalance ?? 0;
+    const withdrawAmount = amount ? Number(amount) : balance;
+    if (withdrawAmount < 1000) return res.status(402).json({ error: "Montant minimum de retrait : 1 000 FCFA" });
+    if (balance < withdrawAmount) return res.status(402).json({ error: `Solde insuffisant. Disponible : ${balance.toLocaleString()} FCFA` });
+
+    const existingPending = await db.select({ id: walletTransactions.id }).from(walletTransactions)
+      .where(drizzleSql`${walletTransactions.userId} = ${user_uid} AND ${walletTransactions.status} = 'pending' AND ${walletTransactions.type} = 'withdrawal_request'`)
+      .limit(1);
+    if (existingPending.length > 0) {
+      return res.status(409).json({ error: "Vous avez déjà une demande en attente de confirmation OTP." });
+    }
+
+    const otp = generateOTP();
+    const otpExpiry = getOtpExpiry(10);
+
+    const [tx] = await (db.insert(walletTransactions) as any).values({
+      userId: user_uid,
+      type: "withdrawal_request",
+      amount: withdrawAmount,
+      description: `Retrait ${provider.toUpperCase()} · ${phone_number}`,
+      mobileMoney: phone_number,
+      mobileMoneyProvider: provider,
+      status: "pending",
+      otpCode: otp,
+      otpExpiresAt: otpExpiry,
+      metadata: { phone_number, provider, amount: withdrawAmount, requested_at: new Date().toISOString() } as any,
+    }).returning();
+
+    console.log(`[WALLET] OTP retrait pour ${user.displayName || user_uid}: ${otp} | ${withdrawAmount} FCFA → ${provider} ${phone_number}`);
+
+    res.json({
+      success: true,
+      transaction_id: tx.id,
+      otp,
+      amount: withdrawAmount,
+      expires_at: otpExpiry.toISOString(),
+      message: `Code de confirmation généré. Valide 10 minutes.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Wallet Pro : Confirmation OTP retrait → déduit le solde ──────────
+app.post("/api/wallet/withdraw/confirm", async (req, res) => {
+  try {
+    const { user_uid, transaction_id, otp_code } = req.body;
+    if (!user_uid || !transaction_id || !otp_code) {
+      return res.status(400).json({ error: "user_uid, transaction_id et otp_code requis" });
+    }
+
+    const [tx] = await db.select().from(walletTransactions)
+      .where(drizzleSql`${walletTransactions.id} = ${transaction_id} AND ${walletTransactions.userId} = ${user_uid}`)
+      .limit(1);
+
+    if (!tx) return res.status(404).json({ error: "Transaction introuvable" });
+    if (tx.status !== "pending") return res.status(409).json({ error: tx.status === "completed" ? "Cette transaction a déjà été confirmée." : "Transaction annulée ou expirée." });
+
+    const otpInDB = (tx as any).otp_code || (tx as any).otpCode;
+    const expiresAt = (tx as any).otp_expires_at || (tx as any).otpExpiresAt;
+
+    if (!otpInDB) return res.status(400).json({ error: "Aucun OTP associé à cette transaction." });
+    if (new Date() > new Date(expiresAt)) {
+      await db.update(walletTransactions).set({ status: "expired" } as any).where(eq(walletTransactions.id, transaction_id));
+      return res.status(410).json({ error: "Code OTP expiré. Veuillez refaire la demande." });
+    }
+    if (otp_code.trim() !== otpInDB.trim()) {
+      return res.status(401).json({ error: "Code OTP incorrect. Vérifiez et réessayez." });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, user_uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const balance = user.walletBalance ?? 0;
+    const amount = tx.amount ?? 0;
+    if (balance < amount) return res.status(402).json({ error: `Solde insuffisant au moment de la confirmation : ${balance.toLocaleString()} FCFA disponibles.` });
+
+    const newBalance = balance - amount;
+    await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, user_uid));
+    await db.update(walletTransactions).set({ status: "awaiting_admin" } as any).where(eq(walletTransactions.id, transaction_id));
+    await logTransaction("withdrawal_request", user_uid, "admin", amount, 0, `RETRAIT CONFIRMÉ: ${amount.toLocaleString()} FCFA → ${tx.mobileMoneyProvider?.toUpperCase()} ${tx.mobileMoney}`);
+
+    broadcastToUser(user_uid, { type: "balance_update", balance: newBalance, reason: "withdrawal_confirmed", amount });
+    broadcastToAll({ type: "admin_new_withdrawal", uid: user_uid, amount, provider: tx.mobileMoneyProvider });
+
+    console.log(`[WALLET] Retrait confirmé: ${user.displayName || user_uid} | ${amount} FCFA | nouveau solde: ${newBalance}`);
+
+    res.json({
+      success: true,
+      new_balance: newBalance,
+      amount_withdrawn: amount,
+      message: `Retrait de ${amount.toLocaleString()} FCFA confirmé. Votre paiement sera effectué sous 24-48h par l'administrateur.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Wallet Pro : Demande de dépôt → OTP (admin confirme ensuite) ─────
+app.post("/api/wallet/deposit/request", async (req, res) => {
+  try {
+    const { user_uid, amount, phone_number, provider } = req.body;
+    if (!user_uid || !amount || !phone_number || !provider) {
+      return res.status(400).json({ error: "user_uid, amount, phone_number et provider requis" });
+    }
+    const depositAmount = Number(amount);
+    if (depositAmount < 500) return res.status(400).json({ error: "Dépôt minimum : 500 FCFA" });
+
+    const [user] = await db.select({ displayName: users.displayName, isBanned: users.isBanned }).from(users)
+      .where(eq(users.firebaseUid, user_uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.isBanned) return res.status(403).json({ error: "Compte suspendu." });
+
+    const otp = generateOTP();
+    const otpExpiry = getOtpExpiry(15);
+
+    const [tx] = await (db.insert(walletTransactions) as any).values({
+      userId: user_uid,
+      type: "deposit_request",
+      amount: depositAmount,
+      description: `Dépôt ${provider.toUpperCase()} · ${phone_number} · ${depositAmount.toLocaleString()} FCFA`,
+      mobileMoney: phone_number,
+      mobileMoneyProvider: provider,
+      status: "pending",
+      otpCode: otp,
+      otpExpiresAt: otpExpiry,
+      metadata: { phone_number, provider, amount: depositAmount, requested_at: new Date().toISOString() } as any,
+    }).returning();
+
+    console.log(`[WALLET] OTP dépôt pour ${user.displayName || user_uid}: ${otp} | ${depositAmount} FCFA depuis ${provider}`);
+
+    broadcastToAll({ type: "admin_new_deposit", uid: user_uid, amount: depositAmount, provider, tx_id: tx.id });
+
+    res.json({
+      success: true,
+      transaction_id: tx.id,
+      otp,
+      amount: depositAmount,
+      expires_at: otpExpiry.toISOString(),
+      message: `Envoyez ${depositAmount.toLocaleString()} FCFA sur ${provider.toUpperCase()} et entrez votre code de confirmation.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Wallet Pro : Confirmation OTP dépôt → crédite le solde ──────────
+app.post("/api/wallet/deposit/confirm", async (req, res) => {
+  try {
+    const { user_uid, transaction_id, otp_code } = req.body;
+    if (!user_uid || !transaction_id || !otp_code) {
+      return res.status(400).json({ error: "user_uid, transaction_id et otp_code requis" });
+    }
+
+    const [tx] = await db.select().from(walletTransactions)
+      .where(drizzleSql`${walletTransactions.id} = ${transaction_id} AND ${walletTransactions.userId} = ${user_uid} AND ${walletTransactions.type} = 'deposit_request'`)
+      .limit(1);
+
+    if (!tx) return res.status(404).json({ error: "Transaction introuvable" });
+    if (tx.status !== "pending") return res.status(409).json({ error: "Cette transaction a déjà été traitée." });
+
+    const otpInDB = (tx as any).otp_code || (tx as any).otpCode;
+    const expiresAt = (tx as any).otp_expires_at || (tx as any).otpExpiresAt;
+
+    if (new Date() > new Date(expiresAt)) {
+      await db.update(walletTransactions).set({ status: "expired" } as any).where(eq(walletTransactions.id, transaction_id));
+      return res.status(410).json({ error: "Code OTP expiré. Veuillez refaire la demande de dépôt." });
+    }
+    if (otp_code.trim() !== otpInDB.trim()) {
+      return res.status(401).json({ error: "Code OTP incorrect." });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, user_uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const newBalance = (user.walletBalance ?? 0) + (tx.amount ?? 0);
+    await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, user_uid));
+    await db.update(walletTransactions).set({ status: "completed" } as any).where(eq(walletTransactions.id, transaction_id));
+    await logTransaction("deposit", tx.mobileMoneyProvider || "mm", user_uid, tx.amount ?? 0, 0,
+      `Dépôt confirmé: ${(tx.amount ?? 0).toLocaleString()} FCFA via ${tx.mobileMoneyProvider?.toUpperCase()}`);
+
+    broadcastToUser(user_uid, { type: "balance_update", balance: newBalance, reason: "deposit_confirmed", amount: tx.amount ?? 0 });
+
+    console.log(`[WALLET] Dépôt confirmé: ${user.displayName || user_uid} | +${tx.amount} FCFA | nouveau solde: ${newBalance}`);
+
+    res.json({
+      success: true,
+      new_balance: newBalance,
+      amount_deposited: tx.amount,
+      message: `Dépôt de ${(tx.amount ?? 0).toLocaleString()} FCFA confirmé. Votre solde a été mis à jour.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Wallet Pro : Admin confirme dépôt manuellement ──────────────────
+app.post("/api/admin/wallet/deposit/validate", async (req, res) => {
+  try {
+    const { email, transaction_id, action } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (!["approve", "reject"].includes(action)) return res.status(400).json({ error: "action: 'approve' ou 'reject'" });
+
+    const [tx] = await db.select().from(walletTransactions).where(eq(walletTransactions.id, transaction_id)).limit(1);
+    if (!tx) return res.status(404).json({ error: "Transaction introuvable" });
+    if (tx.status === "completed" || tx.status === "rejected") return res.status(409).json({ error: "Transaction déjà traitée" });
+
+    if (action === "approve") {
+      const [user] = await db.select().from(users).where(eq(users.firebaseUid, tx.userId!)).limit(1);
+      if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+      const newBalance = (user.walletBalance ?? 0) + (tx.amount ?? 0);
+      await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, tx.userId!));
+      await db.update(walletTransactions).set({ status: "completed" } as any).where(eq(walletTransactions.id, transaction_id));
+      await logTransaction("deposit", "admin", tx.userId!, tx.amount ?? 0, 0, `Dépôt validé admin: ${tx.amount} FCFA`);
+      broadcastToUser(tx.userId!, { type: "balance_update", balance: newBalance, reason: "deposit_approved_admin", amount: tx.amount ?? 0 });
+      res.json({ success: true, new_balance: newBalance });
+    } else {
+      await db.update(walletTransactions).set({ status: "rejected" } as any).where(eq(walletTransactions.id, transaction_id));
+      broadcastToUser(tx.userId!, { type: "transaction_rejected", transaction_id, reason: "Dépôt refusé par l'administrateur." });
+      res.json({ success: true, status: "rejected" });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Middleware Admin ───────────────────────────────────────────────────
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   const email = (req.query.email || req.body?.email || req.headers["x-admin-email"]) as string;
@@ -1538,6 +1829,18 @@ app.get("/api/loto/stats", async (_req, res) => {
     `);
   } catch (e) {
     console.error("[Course] Table init error:", e);
+  }
+})();
+
+// ─── Migration : colonnes OTP wallet_transactions ────────────────────
+(async () => {
+  try {
+    await db.execute(drizzleSql`ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS otp_code TEXT`);
+    await db.execute(drizzleSql`ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS otp_expires_at TIMESTAMP`);
+    await db.execute(drizzleSql`ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS metadata JSONB`);
+    console.log("[Wallet] OTP columns ready");
+  } catch (e) {
+    console.error("[Wallet] Migration error:", e);
   }
 })();
 
@@ -2339,11 +2642,31 @@ async function startQuestion(game: QuizGame) {
 // ─── WebSocket Handler ────────────────────────────────────────────────
 wss.on("connection", (ws: WebSocket) => {
   let playerUid: string | null = null;
+  let registeredUid: string | null = null;
+
+  ws.on("close", () => {
+    if (registeredUid) {
+      const conns = userConnections.get(registeredUid);
+      if (conns) { conns.delete(ws); if (conns.size === 0) userConnections.delete(registeredUid); }
+    }
+  });
 
   ws.on("message", async (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
       const { type } = msg;
+
+      // ─── Enregistrement connexion utilisateur (pour broadcastToUser) ──
+      if (type === "register") {
+        const { uid } = msg;
+        if (uid) {
+          registeredUid = uid;
+          if (!userConnections.has(uid)) userConnections.set(uid, new Set());
+          userConnections.get(uid)!.add(ws);
+          ws.send(JSON.stringify({ type: "registered", uid }));
+        }
+        return;
+      }
 
       if (type === "join") {
         const { sessionId, userUid, userName } = msg;

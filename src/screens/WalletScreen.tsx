@@ -1,488 +1,857 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-  Modal,
-  TextInput,
-  Alert,
-  ActivityIndicator,
-  Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  RefreshControl, Modal, TextInput, Alert, ActivityIndicator,
+  Platform, Animated,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
-import { api } from "../services/api";
+import { BASE_URL } from "../services/api";
 import RewardedVideoButton from "../components/RewardedVideoButton";
-import AdBanner from "../components/AdBanner";
 
-const COLORS = {
+const C = {
   primary: "#2E7D32",
   bg: "#F0FFF4",
   card: "#FFFFFF",
   text: "#1A1A2E",
   muted: "#6C757D",
-  border: "#E9ECEF",
+  border: "#E5E7EB",
   gold: "#F9A825",
   orange: "#E65100",
+  danger: "#C62828",
+  success: "#2E7D32",
 };
 
 const PROVIDERS = [
-  { id: "orange", name: "Orange Money", flag: "🟠" },
-  { id: "wave", name: "Wave", flag: "💙" },
-  { id: "mtn", name: "MTN MoMo", flag: "🟡" },
-  { id: "moov", name: "Moov Money", flag: "🔵" },
+  { id: "orange", name: "Orange Money", emoji: "🟠", color: "#FF5722" },
+  { id: "wave", name: "Wave", emoji: "💙", color: "#1565C0" },
+  { id: "mtn", name: "MTN MoMo", emoji: "🟡", color: "#F9A825" },
+  { id: "moov", name: "Moov Money", emoji: "🔵", color: "#0D47A1" },
 ];
 
-const POINTS_TO_FCFA = 0.1;
-const MIN_WITHDRAWAL = 10000;
 const MAX_DAILY = 15;
 const POINTS_PER_VIDEO = 20;
+const MIN_WITHDRAWAL = 1000;
 
-interface RewardStatus {
-  totalPoints: number;
-  todayViews: number;
-  maxDaily: number;
-  fcfaEquivalent: number;
-  canWithdraw: boolean;
-  minWithdrawalPoints: number;
-  isBanned: boolean;
+interface WalletState { balance: number; isBanned: boolean; fetchedAt: string; }
+interface TxEntry {
+  id: string; type: string; amount: number; description: string;
+  mobile_money?: string; mobile_money_provider?: string; status: string; created_at: string;
+}
+interface RewardStatus { totalPoints: number; todayViews: number; walletBalance: number; isBanned: boolean; }
+
+function getWsUrl(): string {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}`;
+  }
+  return BASE_URL.replace("https://", "wss://").replace("http://", "ws://");
 }
 
-interface HistoryEntry {
-  id: string;
-  points_earned?: number;
-  amount?: number;
-  viewed_at?: string;
-  created_at?: string;
-  type?: string;
-  description?: string;
-  mobile_money?: string;
-  mobile_money_provider?: string;
-  status?: string;
+function useWalletRealtime(uid: string | null, onBalanceUpdate: (balance: number) => void) {
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      if (!alive) return;
+      try {
+        const ws = new WebSocket(getWsUrl());
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "register", uid }));
+        };
+
+        ws.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === "balance_update") {
+              onBalanceUpdate(data.balance);
+            }
+          } catch {}
+        };
+
+        ws.onclose = () => {
+          if (alive) reconnectTimeout = setTimeout(connect, 5000);
+        };
+        ws.onerror = () => { ws.close(); };
+      } catch {}
+    }
+
+    connect();
+    return () => {
+      alive = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      wsRef.current?.close();
+    };
+  }, [uid]);
 }
 
 export default function WalletScreen() {
-  const { firebaseUser } = useAuth();
-  const [status, setStatus] = useState<RewardStatus | null>(null);
-  const [history, setHistory] = useState<{ videoHistory: HistoryEntry[]; withdrawals: HistoryEntry[] }>({ videoHistory: [], withdrawals: [] });
+  const { firebaseUser, dbUser, refreshUser } = useAuth();
+  const uid = firebaseUser?.uid;
+
+  const [walletState, setWalletState] = useState<WalletState | null>(null);
+  const [rewardStatus, setRewardStatus] = useState<RewardStatus | null>(null);
+  const [transactions, setTransactions] = useState<TxEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [withdrawModal, setWithdrawModal] = useState(false);
-  const [phone, setPhone] = useState("");
-  const [provider, setProvider] = useState(PROVIDERS[0]);
-  const [withdrawing, setWithdrawing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"wallet" | "videos" | "history">("wallet");
 
-  const fetchData = useCallback(async () => {
-    if (!firebaseUser) return;
-    try {
-      const [s, h] = await Promise.all([
-        api.getRewardStatus(firebaseUser.uid),
-        api.getRewardHistory(firebaseUser.uid),
-      ]);
-      setStatus(s);
-      setHistory(h);
-    } catch (e) {
-      console.error("Wallet fetch error:", e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [firebaseUser]);
+  const [withdrawStep, setWithdrawStep] = useState<0 | 1 | 2>(0);
+  const [withdrawPhone, setWithdrawPhone] = useState("");
+  const [withdrawProvider, setWithdrawProvider] = useState(PROVIDERS[0]);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawTxId, setWithdrawTxId] = useState("");
+  const [withdrawOtpGenerated, setWithdrawOtpGenerated] = useState("");
+  const [withdrawOtpInput, setWithdrawOtpInput] = useState("");
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [withdrawOtpExpiry, setWithdrawOtpExpiry] = useState<Date | null>(null);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  const [depositStep, setDepositStep] = useState<0 | 1 | 2>(0);
+  const [depositPhone, setDepositPhone] = useState("");
+  const [depositProvider, setDepositProvider] = useState(PROVIDERS[0]);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositTxId, setDepositTxId] = useState("");
+  const [depositOtpGenerated, setDepositOtpGenerated] = useState("");
+  const [depositOtpInput, setDepositOtpInput] = useState("");
+  const [depositLoading, setDepositLoading] = useState(false);
 
-  const handleWithdraw = async () => {
-    if (!firebaseUser || !status) return;
-    if (phone.trim().length < 6) {
-      Alert.alert("Numéro invalide", "Entrez un numéro de téléphone Mobile Money valide.");
-      return;
-    }
-    setWithdrawing(true);
-    try {
-      const result = await api.requestWithdrawal({
-        userUid: firebaseUser.uid,
-        phoneNumber: phone.trim(),
-        provider: provider.id,
-      });
-      setWithdrawModal(false);
-      setPhone("");
-      await fetchData();
-      Alert.alert("✅ Demande envoyée !", result.message, [{ text: "OK" }]);
-    } catch (e: any) {
-      Alert.alert("Erreur", e.message || "Impossible de traiter la demande.");
-    } finally {
-      setWithdrawing(false);
-    }
+  const balancePulse = useRef(new Animated.Value(1)).current;
+
+  const pulseBalance = () => {
+    Animated.sequence([
+      Animated.timing(balancePulse, { toValue: 1.08, duration: 200, useNativeDriver: true }),
+      Animated.timing(balancePulse, { toValue: 1, duration: 200, useNativeDriver: true }),
+    ]).start();
   };
 
-  const timeAgo = (dateStr?: string) => {
-    if (!dateStr) return "";
-    const diff = Date.now() - new Date(dateStr).getTime();
+  useWalletRealtime(uid || null, (newBalance) => {
+    setWalletState(prev => prev ? { ...prev, balance: newBalance } : null);
+    pulseBalance();
+    fetchTransactions();
+  });
+
+  const fetchBalance = useCallback(async () => {
+    if (!uid) return;
+    try {
+      const res = await fetch(`${BASE_URL}/api/wallet/balance/${uid}`);
+      const data = await res.json();
+      if (res.ok) setWalletState({ balance: data.balance, isBanned: data.is_banned, fetchedAt: data.fetched_at });
+    } catch {}
+  }, [uid]);
+
+  const fetchRewardStatus = useCallback(async () => {
+    if (!uid) return;
+    try {
+      const res = await fetch(`${BASE_URL}/api/rewards/status/${uid}`);
+      const data = await res.json();
+      if (res.ok) setRewardStatus(data);
+    } catch {}
+  }, [uid]);
+
+  const fetchTransactions = useCallback(async () => {
+    if (!uid) return;
+    try {
+      const [txRes, videoRes, wdRes] = await Promise.all([
+        fetch(`${BASE_URL}/api/wallet/transactions/${uid}`),
+        fetch(`${BASE_URL}/api/rewards/history/${uid}`),
+      ]);
+      const txData = txRes.ok ? await txRes.json() : [];
+      const history = videoRes.ok ? await videoRes.json() : { videoHistory: [], withdrawals: [] };
+      const combined = [
+        ...txData.map((t: any) => ({ ...t, _source: "wallet" })),
+        ...(history.withdrawals || []).filter((w: any) => !txData.some((t: any) => t.id === w.id)).map((w: any) => ({ ...w, type: "withdrawal_request", _source: "rewards" })),
+        ...(history.videoHistory || []).map((v: any) => ({ ...v, type: "video_reward", amount: v.points_earned, status: "completed", created_at: v.viewed_at, description: "Vidéo récompensée", _source: "video" })),
+      ];
+      combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setTransactions(combined.slice(0, 50));
+    } catch {}
+  }, [uid]);
+
+  const fetchAll = useCallback(async () => {
+    if (!uid) return;
+    await Promise.all([fetchBalance(), fetchRewardStatus(), fetchTransactions()]);
+    setLoading(false);
+    setRefreshing(false);
+  }, [uid, fetchBalance, fetchRewardStatus, fetchTransactions]);
+
+  useFocusEffect(useCallback(() => { fetchAll(); }, [fetchAll]));
+
+  const handleRefresh = () => { setRefreshing(true); fetchAll(); };
+
+  const handleWithdrawRequest = async () => {
+    const amount = parseInt(withdrawAmount) || (walletState?.balance ?? 0);
+    if (!withdrawPhone.trim() || withdrawPhone.trim().length < 6) return Alert.alert("Numéro invalide", "Entrez un numéro Mobile Money valide.");
+    if (amount < MIN_WITHDRAWAL) return Alert.alert("Montant trop faible", `Minimum : ${MIN_WITHDRAWAL.toLocaleString()} FCFA`);
+    setWithdrawLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/wallet/withdraw/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_uid: uid, phone_number: withdrawPhone.trim(), provider: withdrawProvider.id, amount }),
+      });
+      const data = await res.json();
+      if (!res.ok) { Alert.alert("Erreur", data.error); return; }
+      setWithdrawTxId(data.transaction_id);
+      setWithdrawOtpGenerated(data.otp);
+      setWithdrawOtpExpiry(new Date(data.expires_at));
+      setWithdrawStep(2);
+    } catch { Alert.alert("Erreur réseau", "Vérifiez votre connexion."); }
+    setWithdrawLoading(false);
+  };
+
+  const handleWithdrawConfirm = async () => {
+    if (withdrawOtpInput.trim().length !== 6) return Alert.alert("Code invalide", "Le code de sécurité est à 6 chiffres.");
+    setWithdrawLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/wallet/withdraw/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_uid: uid, transaction_id: withdrawTxId, otp_code: withdrawOtpInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { Alert.alert("Erreur", data.error); return; }
+      setWithdrawStep(0);
+      setWithdrawPhone(""); setWithdrawAmount(""); setWithdrawOtpInput(""); setWithdrawOtpGenerated(""); setWithdrawTxId("");
+      setWalletState(prev => prev ? { ...prev, balance: data.new_balance } : null);
+      fetchTransactions();
+      refreshUser();
+      Alert.alert("✅ Retrait confirmé !", data.message);
+    } catch { Alert.alert("Erreur réseau", "Vérifiez votre connexion."); }
+    setWithdrawLoading(false);
+  };
+
+  const handleDepositRequest = async () => {
+    const amount = parseInt(depositAmount);
+    if (!amount || amount < 500) return Alert.alert("Montant invalide", "Dépôt minimum : 500 FCFA");
+    if (!depositPhone.trim() || depositPhone.trim().length < 6) return Alert.alert("Numéro invalide", "Entrez votre numéro Mobile Money.");
+    setDepositLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/wallet/deposit/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_uid: uid, amount, phone_number: depositPhone.trim(), provider: depositProvider.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { Alert.alert("Erreur", data.error); return; }
+      setDepositTxId(data.transaction_id);
+      setDepositOtpGenerated(data.otp);
+      setDepositStep(2);
+    } catch { Alert.alert("Erreur réseau", "Vérifiez votre connexion."); }
+    setDepositLoading(false);
+  };
+
+  const handleDepositConfirm = async () => {
+    if (depositOtpInput.trim().length !== 6) return Alert.alert("Code invalide", "Le code est à 6 chiffres.");
+    setDepositLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/wallet/deposit/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_uid: uid, transaction_id: depositTxId, otp_code: depositOtpInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { Alert.alert("Erreur", data.error); return; }
+      setDepositStep(0);
+      setDepositPhone(""); setDepositAmount(""); setDepositOtpInput(""); setDepositOtpGenerated(""); setDepositTxId("");
+      setWalletState(prev => prev ? { ...prev, balance: data.new_balance } : null);
+      fetchTransactions();
+      refreshUser();
+      Alert.alert("✅ Dépôt confirmé !", data.message);
+    } catch { Alert.alert("Erreur réseau", "Vérifiez votre connexion."); }
+    setDepositLoading(false);
+  };
+
+  const formatTime = (d?: string) => {
+    if (!d) return "";
+    const dt = new Date(d);
+    const now = new Date();
+    const diff = now.getTime() - dt.getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return "à l'instant";
     if (mins < 60) return `il y a ${mins}min`;
     const hrs = Math.floor(mins / 60);
     if (hrs < 24) return `il y a ${hrs}h`;
-    return `il y a ${Math.floor(hrs / 24)}j`;
+    return `${dt.getDate().toString().padStart(2, "0")}/${(dt.getMonth() + 1).toString().padStart(2, "0")}`;
   };
 
-  if (!firebaseUser) {
+  const txIcon = (type: string) => {
+    const map: Record<string, string> = {
+      withdrawal_request: "💸", deposit_request: "📥", deposit: "📥",
+      video_reward: "▶️", course_pari: "🏁", course_gain: "🏆",
+      quiz_win: "🎯", loto_win: "🎰", boost: "🚀",
+    };
+    return map[type] || "💳";
+  };
+
+  const txLabel = (type: string) => {
+    const map: Record<string, string> = {
+      withdrawal_request: "Retrait Mobile Money", deposit_request: "Dépôt Mobile Money",
+      deposit: "Dépôt crédité", video_reward: "Vidéo récompensée",
+      course_pari: "Paris Course de Rue", course_gain: "Gain Course de Rue",
+      quiz_win: "Gain Live Quiz", loto_win: "Gain Loto", boost: "Boost Annonce",
+    };
+    return map[type] || type;
+  };
+
+  const statusColor = (s: string) => {
+    const map: Record<string, string> = {
+      pending: "#F57F17", awaiting_admin: "#E65100", completed: "#2E7D32",
+      rejected: "#C62828", expired: "#9E9E9E",
+    };
+    return map[s] || "#9E9E9E";
+  };
+
+  const statusLabel = (s: string) => {
+    const map: Record<string, string> = {
+      pending: "⏳ En attente OTP", awaiting_admin: "🔄 En traitement",
+      completed: "✅ Confirmé", rejected: "❌ Refusé", expired: "⌛ Expiré",
+    };
+    return map[s] || s;
+  };
+
+  if (!uid) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.lockIcon}>🔒</Text>
-        <Text style={styles.lockTitle}>Connexion requise</Text>
-        <Text style={styles.lockSub}>Connectez-vous pour accéder à votre portefeuille de points.</Text>
-      </View>
+      <SafeAreaView style={[styles.flex, { backgroundColor: C.bg, justifyContent: "center", alignItems: "center", padding: 32 }]}>
+        <Text style={{ fontSize: 64, marginBottom: 16 }}>🔒</Text>
+        <Text style={{ fontSize: 20, fontWeight: "800", color: C.text, marginBottom: 8 }}>Connexion requise</Text>
+        <Text style={{ fontSize: 14, color: C.muted, textAlign: "center" }}>Connectez-vous pour accéder à votre portefeuille.</Text>
+      </SafeAreaView>
     );
   }
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
+      <SafeAreaView style={[styles.flex, { backgroundColor: C.bg }]}>
+        <View style={styles.header}><Text style={styles.headerTitle}>💰 Mon Portefeuille</Text></View>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color={C.primary} />
+          <Text style={{ marginTop: 12, color: C.muted, fontSize: 14 }}>Chargement de votre solde...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  const pts = status?.totalPoints ?? 0;
-  const fcfa = Math.floor(pts * POINTS_TO_FCFA);
-  const todayViews = status?.todayViews ?? 0;
+  const balance = walletState?.balance ?? 0;
+  const isBanned = walletState?.isBanned ?? false;
+  const todayViews = rewardStatus?.todayViews ?? 0;
   const progressPct = Math.min((todayViews / MAX_DAILY) * 100, 100);
-  const canWithdraw = pts >= MIN_WITHDRAWAL;
-  const isBanned = status?.isBanned ?? false;
+  const canWithdraw = balance >= MIN_WITHDRAWAL && !isBanned;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: C.bg }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>💰 Mon Portefeuille</Text>
-        <Text style={styles.headerSub}>Vidéos · Points · Retraits</Text>
+        <View>
+          <Text style={styles.headerTitle}>💰 Mon Portefeuille</Text>
+          <Text style={styles.headerSub}>Sécurisé · Temps réel</Text>
+        </View>
+        <TouchableOpacity style={styles.headerRefresh} onPress={() => { fetchBalance(); pulseBalance(); }}>
+          <Ionicons name="refresh" size={18} color="rgba(255,255,255,0.85)" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.tabBar}>
+        {(["wallet", "videos", "history"] as const).map(t => (
+          <TouchableOpacity key={t} style={[styles.tab, activeTab === t && styles.tabActive]} onPress={() => setActiveTab(t)}>
+            <Text style={[styles.tabText, activeTab === t && styles.tabTextActive]}>
+              {t === "wallet" ? "💳 Wallet" : t === "videos" ? "▶️ Vidéos" : "📊 Historique"}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       <ScrollView
+        contentContainerStyle={{ paddingBottom: 40 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={C.primary} />}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(); }} tintColor={COLORS.primary} />}
       >
         {isBanned && (
           <View style={styles.bannedCard}>
-            <Text style={styles.bannedIcon}>🚫</Text>
-            <Text style={styles.bannedTitle}>Compte bloqué</Text>
-            <Text style={styles.bannedText}>Activité suspecte détectée. Contactez le support : abdoulquartierplus@gmail.com</Text>
+            <Text style={{ fontSize: 36 }}>🚫</Text>
+            <Text style={styles.bannedTitle}>Compte suspendu</Text>
+            <Text style={styles.bannedText}>Contactez le support : abdoulquartierplus@gmail.com</Text>
           </View>
         )}
 
-        <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Solde total</Text>
-          <Text style={styles.balancePoints}>{pts.toLocaleString("fr-FR")} pts</Text>
-          <Text style={styles.balanceFcfa}>{fcfa.toLocaleString("fr-FR")} FCFA</Text>
-          <View style={styles.balanceInfo}>
-            <Text style={styles.balanceInfoText}>10 000 pts = 1 000 FCFA</Text>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>📺 Vidéos du jour</Text>
-            <View style={styles.progressPill}>
-              <Text style={styles.progressText}>{todayViews} / {MAX_DAILY}</Text>
-            </View>
-          </View>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${progressPct}%` as any }]} />
-          </View>
-          <Text style={styles.progressCaption}>
-            {todayViews < MAX_DAILY
-              ? `${MAX_DAILY - todayViews} vidéo${MAX_DAILY - todayViews > 1 ? "s" : ""} restante${MAX_DAILY - todayViews > 1 ? "s" : ""} (+${(MAX_DAILY - todayViews) * POINTS_PER_VIDEO} pts max)`
-              : "Revenez demain pour plus de points !"}
-          </Text>
-
-          {!isBanned && (
-            <View style={styles.videoButtonWrapper}>
-              <RewardedVideoButton
-                todayViews={todayViews}
-                maxDaily={MAX_DAILY}
-                userUid={firebaseUser.uid}
-                onPointsEarned={(newTotal) => {
-                  setStatus((prev) => prev ? {
-                    ...prev,
-                    totalPoints: newTotal,
-                    todayViews: prev.todayViews + 1,
-                    fcfaEquivalent: Math.floor(newTotal * POINTS_TO_FCFA),
-                    canWithdraw: newTotal >= MIN_WITHDRAWAL,
-                  } : prev);
-                }}
-              />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.missionsCard} activeOpacity={0.85} onPress={() => Alert.alert("🚀 Missions Spéciales", "Bientôt disponible : Gagnez jusqu'à 5 000 points par mission !")}>
-            <View style={styles.missionsLeft}>
-              <Text style={styles.missionsIcon}>🎯</Text>
-              <View>
-                <Text style={styles.missionsTitle}>Missions Spéciales</Text>
-                <Text style={styles.missionsSub}>Bientôt disponible : Gagnez jusqu'à 5 000 points par mission !</Text>
+        {activeTab === "wallet" && (
+          <>
+            <Animated.View style={[styles.balanceCard, { transform: [{ scale: balancePulse }] }]}>
+              <View style={styles.balanceTop}>
+                <Text style={styles.balanceLabel}>Solde disponible</Text>
+                <View style={styles.liveBadge}><View style={styles.liveDot} /><Text style={styles.liveText}>LIVE</Text></View>
               </View>
-            </View>
-            <Text style={styles.missionsArrow}>›</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>💸 Retrait Mobile Money</Text>
-          <View style={styles.withdrawCard}>
-            <View style={styles.withdrawRow}>
-              <Text style={styles.withdrawIcon}>{canWithdraw ? "✅" : "🔒"}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.withdrawTitle}>
-                  {canWithdraw ? "Retrait disponible !" : `${(MIN_WITHDRAWAL - pts).toLocaleString("fr-FR")} pts manquants`}
-                </Text>
-                <Text style={styles.withdrawSub}>
-                  {canWithdraw
-                    ? `Vous pouvez retirer ${fcfa.toLocaleString("fr-FR")} FCFA`
-                    : `Minimum requis : ${MIN_WITHDRAWAL.toLocaleString("fr-FR")} pts = 1 000 FCFA`}
-                </Text>
-              </View>
-            </View>
-
-            {!canWithdraw && (
-              <View style={styles.withdrawProgressBg}>
-                <View style={[styles.withdrawProgressFill, { width: `${Math.min((pts / MIN_WITHDRAWAL) * 100, 100)}%` as any }]} />
-                <Text style={styles.withdrawProgressLabel}>{Math.round((pts / MIN_WITHDRAWAL) * 100)}%</Text>
-              </View>
-            )}
-
-            {canWithdraw && !isBanned && (
-              <TouchableOpacity style={styles.withdrawBtn} onPress={() => setWithdrawModal(true)}>
-                <Text style={styles.withdrawBtnText}>Demander mon paiement →</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📊 Historique</Text>
-          {history.withdrawals.map((w) => (
-            <View key={w.id} style={styles.historyRow}>
-              <Text style={styles.historyIcon}>💸</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.historyTitle}>Retrait {w.mobile_money_provider?.toUpperCase()}</Text>
-                <Text style={styles.historySub}>{w.mobile_money} · {timeAgo(w.created_at)}</Text>
-              </View>
-              <View>
-                <Text style={styles.historyAmount}>-{w.amount?.toLocaleString("fr-FR")} FCFA</Text>
-                <Text style={[styles.historyStatus, { color: w.status === "pending" ? "#F9A825" : "#2E7D32" }]}>
-                  {w.status === "pending" ? "⏳ En attente" : "✅ Validé"}
-                </Text>
-              </View>
-            </View>
-          ))}
-          {history.videoHistory.slice(0, 20).map((v) => (
-            <View key={v.id} style={styles.historyRow}>
-              <Text style={styles.historyIcon}>▶️</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.historyTitle}>Vidéo récompensée</Text>
-                <Text style={styles.historySub}>{timeAgo(v.viewed_at)}</Text>
-              </View>
-              <Text style={styles.historyEarned}>+{v.points_earned} pts</Text>
-            </View>
-          ))}
-          {history.videoHistory.length === 0 && history.withdrawals.length === 0 && (
-            <View style={styles.emptyHistory}>
-              <Text style={styles.emptyHistoryIcon}>📭</Text>
-              <Text style={styles.emptyHistoryText}>Aucune activité pour l'instant.</Text>
-              <Text style={styles.emptyHistorySubText}>Regardez des vidéos pour gagner vos premiers points !</Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
-
-      <AdBanner />
-
-      <Modal visible={withdrawModal} animationType="slide" transparent onRequestClose={() => setWithdrawModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>💸 Demander mon paiement</Text>
-              <TouchableOpacity onPress={() => setWithdrawModal(false)}>
-                <Text style={styles.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalAmountBadge}>
-              <Text style={styles.modalAmountLabel}>Montant à recevoir</Text>
-              <Text style={styles.modalAmountValue}>{fcfa.toLocaleString("fr-FR")} FCFA</Text>
-              <Text style={styles.modalAmountPts}>{pts.toLocaleString("fr-FR")} points</Text>
-            </View>
-
-            <Text style={styles.fieldLabel}>Opérateur Mobile Money</Text>
-            <View style={styles.providerRow}>
-              {PROVIDERS.map((p) => (
-                <TouchableOpacity
-                  key={p.id}
-                  style={[styles.providerChip, provider.id === p.id && styles.providerChipActive]}
-                  onPress={() => setProvider(p)}
-                >
-                  <Text style={styles.providerFlag}>{p.flag}</Text>
-                  <Text style={[styles.providerName, provider.id === p.id && styles.providerNameActive]}>{p.name}</Text>
+              <Text style={styles.balanceAmount}>{balance.toLocaleString("fr-FR")} FCFA</Text>
+              <Text style={styles.balanceSub}>Mis à jour en temps réel</Text>
+              <View style={styles.balanceActions}>
+                <TouchableOpacity style={[styles.actionBtn, styles.depositBtn]} onPress={() => setDepositStep(1)} disabled={isBanned}>
+                  <Ionicons name="add-circle" size={20} color="#fff" />
+                  <Text style={styles.actionBtnText}>Déposer</Text>
                 </TouchableOpacity>
-              ))}
+                <TouchableOpacity style={[styles.actionBtn, styles.withdrawBtn, !canWithdraw && styles.actionBtnDisabled]} onPress={() => canWithdraw && setWithdrawStep(1)} disabled={!canWithdraw}>
+                  <Ionicons name="arrow-up-circle" size={20} color="#fff" />
+                  <Text style={styles.actionBtnText}>Retirer</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+
+            {!canWithdraw && !isBanned && (
+              <View style={styles.progressCard}>
+                <Text style={styles.progressTitle}>🔒 Retrait disponible à {MIN_WITHDRAWAL.toLocaleString()} FCFA</Text>
+                <View style={styles.progressBarBg}>
+                  <View style={[styles.progressBarFill, { width: `${Math.min((balance / MIN_WITHDRAWAL) * 100, 100)}%` as any }]} />
+                </View>
+                <Text style={styles.progressCaption}>{balance.toLocaleString()} / {MIN_WITHDRAWAL.toLocaleString()} FCFA — {Math.round((balance / MIN_WITHDRAWAL) * 100)}%</Text>
+              </View>
+            )}
+
+            <View style={styles.securityCard}>
+              <Ionicons name="shield-checkmark" size={22} color={C.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.securityTitle}>Transactions sécurisées OTP</Text>
+                <Text style={styles.securitySub}>Chaque opération est protégée par un code de confirmation à usage unique.</Text>
+              </View>
             </View>
 
-            <Text style={styles.fieldLabel}>Numéro {provider.name}</Text>
-            <TextInput
-              style={styles.phoneInput}
-              placeholder="Ex : 07 00 00 00 00"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              maxLength={15}
-              placeholderTextColor={COLORS.muted}
-            />
+            <View style={styles.recentSection}>
+              <Text style={styles.sectionTitle}>Dernières transactions</Text>
+              {transactions.slice(0, 5).length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={{ fontSize: 40 }}>📭</Text>
+                  <Text style={styles.emptyText}>Aucune transaction pour le moment</Text>
+                </View>
+              ) : (
+                transactions.slice(0, 5).map(tx => <TxRow key={tx.id} tx={tx} txIcon={txIcon} txLabel={txLabel} statusColor={statusColor} statusLabel={statusLabel} formatTime={formatTime} />)
+              )}
+              {transactions.length > 5 && (
+                <TouchableOpacity style={styles.seeAllBtn} onPress={() => setActiveTab("history")}>
+                  <Text style={styles.seeAllText}>Voir tout l'historique ({transactions.length}) →</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        )}
 
-            <View style={styles.modalNotice}>
-              <Text style={styles.modalNoticeText}>
-                ⏱️ Paiement effectué dans les 24-48h ouvrées par l'administrateur.
+        {activeTab === "videos" && (
+          <View style={{ padding: 16, gap: 16 }}>
+            <View style={styles.videoProgressCard}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <Text style={styles.videoProgressTitle}>📺 Vidéos du jour</Text>
+                <View style={styles.videoPill}><Text style={styles.videoPillText}>{todayViews} / {MAX_DAILY}</Text></View>
+              </View>
+              <View style={styles.progressBarBg}>
+                <View style={[styles.progressBarFill, { width: `${progressPct}%` as any, backgroundColor: C.gold }]} />
+              </View>
+              <Text style={[styles.progressCaption, { marginTop: 8 }]}>
+                {todayViews < MAX_DAILY
+                  ? `Encore ${MAX_DAILY - todayViews} vidéo(s) — jusqu'à +${(MAX_DAILY - todayViews) * POINTS_PER_VIDEO} FCFA ce soir`
+                  : "✅ Quota atteint — Revenez demain !"}
               </Text>
             </View>
 
-            <TouchableOpacity
-              style={[styles.confirmBtn, (!phone.trim() || withdrawing) && styles.confirmBtnDisabled]}
-              onPress={handleWithdraw}
-              disabled={!phone.trim() || withdrawing}
-            >
-              {withdrawing ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.confirmBtnText}>✅ Confirmer la demande</Text>
-              )}
-            </TouchableOpacity>
+            {!isBanned && (
+              <RewardedVideoButton
+                todayViews={todayViews}
+                maxDaily={MAX_DAILY}
+                userUid={uid}
+                onPointsEarned={(newTotal) => {
+                  setRewardStatus(prev => prev ? { ...prev, totalPoints: newTotal, todayViews: prev.todayViews + 1 } : null);
+                  fetchBalance();
+                }}
+              />
+            )}
+
+            <View style={styles.earningsGuide}>
+              <Text style={styles.earningsGuideTitle}>💡 Comment gagner ?</Text>
+              {[
+                { icon: "▶️", text: "Regardez 1 vidéo = +20 FCFA crédités instantanément" },
+                { icon: "🎯", text: "Jusqu'à 15 vidéos par jour = 300 FCFA max" },
+                { icon: "💸", text: "Retrait minimum : 1 000 FCFA vers votre Mobile Money" },
+                { icon: "🔒", text: "Chaque retrait protégé par un code OTP unique" },
+              ].map((item, i) => (
+                <View key={i} style={styles.guideRow}>
+                  <Text style={{ fontSize: 18, width: 28 }}>{item.icon}</Text>
+                  <Text style={styles.guideText}>{item.text}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-        </View>
-      </Modal>
+        )}
+
+        {activeTab === "history" && (
+          <View style={{ padding: 16 }}>
+            <Text style={styles.sectionTitle}>Toutes les transactions ({transactions.length})</Text>
+            {transactions.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={{ fontSize: 48 }}>📊</Text>
+                <Text style={styles.emptyText}>Aucune transaction</Text>
+                <Text style={styles.emptySub}>Vos dépôts, retraits et gains apparaîtront ici.</Text>
+              </View>
+            ) : (
+              <View style={{ gap: 8 }}>
+                {transactions.map(tx => <TxRow key={tx.id} tx={tx} txIcon={txIcon} txLabel={txLabel} statusColor={statusColor} statusLabel={statusLabel} formatTime={formatTime} />)}
+              </View>
+            )}
+          </View>
+        )}
+      </ScrollView>
+
+      <WithdrawModal
+        step={withdrawStep}
+        onClose={() => { setWithdrawStep(0); setWithdrawOtpInput(""); setWithdrawPhone(""); setWithdrawAmount(""); }}
+        phone={withdrawPhone} setPhone={setWithdrawPhone}
+        provider={withdrawProvider} setProvider={setWithdrawProvider}
+        amount={withdrawAmount} setAmount={setWithdrawAmount}
+        balance={balance}
+        otpGenerated={withdrawOtpGenerated}
+        otpInput={withdrawOtpInput} setOtpInput={setWithdrawOtpInput}
+        loading={withdrawLoading}
+        onRequest={handleWithdrawRequest}
+        onConfirm={handleWithdrawConfirm}
+        otpExpiry={withdrawOtpExpiry}
+      />
+
+      <DepositModal
+        step={depositStep}
+        onClose={() => { setDepositStep(0); setDepositOtpInput(""); setDepositPhone(""); setDepositAmount(""); }}
+        phone={depositPhone} setPhone={setDepositPhone}
+        provider={depositProvider} setProvider={setDepositProvider}
+        amount={depositAmount} setAmount={setDepositAmount}
+        otpGenerated={depositOtpGenerated}
+        otpInput={depositOtpInput} setOtpInput={setDepositOtpInput}
+        loading={depositLoading}
+        onRequest={handleDepositRequest}
+        onConfirm={handleDepositConfirm}
+      />
+    </SafeAreaView>
+  );
+}
+
+function TxRow({ tx, txIcon, txLabel, statusColor, statusLabel, formatTime }: any) {
+  const isCredit = ["deposit", "video_reward", "course_gain", "quiz_win", "loto_win", "referral_bonus"].includes(tx.type);
+  return (
+    <View style={styles.txRow}>
+      <View style={styles.txIconBox}>
+        <Text style={{ fontSize: 20 }}>{txIcon(tx.type)}</Text>
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.txLabel}>{txLabel(tx.type)}</Text>
+        {tx.description && <Text style={styles.txDesc} numberOfLines={1}>{tx.description}</Text>}
+        <Text style={[styles.txStatus, { color: statusColor(tx.status) }]}>{statusLabel(tx.status)}</Text>
+      </View>
+      <View style={{ alignItems: "flex-end" }}>
+        <Text style={[styles.txAmount, { color: isCredit ? C.success : C.danger }]}>
+          {isCredit ? "+" : "-"}{(tx.amount || 0).toLocaleString()} FCFA
+        </Text>
+        <Text style={styles.txDate}>{formatTime(tx.created_at)}</Text>
+      </View>
     </View>
   );
 }
 
+function OtpDisplay({ otp }: { otp: string }) {
+  return (
+    <View style={styles.otpDisplay}>
+      <Text style={styles.otpDisplayLabel}>🔐 Votre code de sécurité</Text>
+      <View style={styles.otpDigits}>
+        {otp.split("").map((d, i) => (
+          <View key={i} style={styles.otpDigitBox}><Text style={styles.otpDigitText}>{d}</Text></View>
+        ))}
+      </View>
+      <Text style={styles.otpDisplayHint}>Entrez ce code pour valider l'opération</Text>
+    </View>
+  );
+}
+
+function WithdrawModal({ step, onClose, phone, setPhone, provider, setProvider, amount, setAmount, balance, otpGenerated, otpInput, setOtpInput, loading, onRequest, onConfirm, otpExpiry }: any) {
+  const withdrawAmount = parseInt(amount) || balance;
+  return (
+    <Modal visible={step > 0} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalHeaderRow}>
+            <Text style={styles.modalTitle}>{step === 1 ? "💸 Demander un retrait" : "🔐 Confirmer le retrait"}</Text>
+            <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color={C.muted} /></TouchableOpacity>
+          </View>
+
+          {step === 1 && (
+            <>
+              <View style={styles.amountBox}>
+                <Text style={styles.amountBoxLabel}>Montant disponible</Text>
+                <Text style={styles.amountBoxValue}>{balance.toLocaleString()} FCFA</Text>
+              </View>
+              <Text style={styles.fieldLabel}>Montant à retirer (min 1 000)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder={`${balance.toLocaleString()} FCFA (tout retirer)`}
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="numeric"
+                placeholderTextColor={C.muted}
+              />
+              <Text style={styles.fieldLabel}>Opérateur Mobile Money</Text>
+              <View style={styles.providerGrid}>
+                {PROVIDERS.map(p => (
+                  <TouchableOpacity key={p.id} style={[styles.providerChip, provider.id === p.id && styles.providerChipActive]} onPress={() => setProvider(p)}>
+                    <Text style={styles.providerEmoji}>{p.emoji}</Text>
+                    <Text style={[styles.providerName, provider.id === p.id && { color: C.primary, fontWeight: "700" as any }]}>{p.name}</Text>
+                    {provider.id === p.id && <Ionicons name="checkmark-circle" size={14} color={C.primary} />}
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.fieldLabel}>Numéro {provider.name}</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: 07 00 00 00 00"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                maxLength={15}
+                placeholderTextColor={C.muted}
+              />
+              <View style={styles.noticeBox}>
+                <Ionicons name="information-circle" size={16} color="#5D4037" />
+                <Text style={styles.noticeText}>Un code OTP sera généré pour sécuriser votre retrait.</Text>
+              </View>
+              <TouchableOpacity style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]} onPress={onRequest} disabled={loading || !phone.trim()}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Générer le code de sécurité →</Text>}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <View style={styles.confirmSummary}>
+                <Text style={styles.confirmSummaryLabel}>Retrait de</Text>
+                <Text style={styles.confirmSummaryAmount}>{withdrawAmount.toLocaleString()} FCFA</Text>
+                <Text style={styles.confirmSummaryDetail}>{provider.emoji} {provider.name} · {phone}</Text>
+              </View>
+              {otpGenerated && <OtpDisplay otp={otpGenerated} />}
+              <Text style={styles.fieldLabel}>Entrez votre code de confirmation</Text>
+              <TextInput
+                style={[styles.input, styles.otpInput]}
+                placeholder="_ _ _ _ _ _"
+                value={otpInput}
+                onChangeText={t => setOtpInput(t.replace(/\D/g, "").slice(0, 6))}
+                keyboardType="numeric"
+                maxLength={6}
+                placeholderTextColor={C.muted}
+                textAlign="center"
+              />
+              {otpExpiry && (
+                <Text style={styles.expiryText}>⏱️ Code valide jusqu'à {new Date(otpExpiry).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</Text>
+              )}
+              <TouchableOpacity style={[styles.primaryBtn, (otpInput.length !== 6 || loading) && styles.primaryBtnDisabled]} onPress={onConfirm} disabled={otpInput.length !== 6 || loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>✅ Valider le retrait</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => { setOtpInput(""); onRequest(); }}>
+                <Text style={styles.secondaryBtnText}>↻ Renvoyer le code</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function DepositModal({ step, onClose, phone, setPhone, provider, setProvider, amount, setAmount, otpGenerated, otpInput, setOtpInput, loading, onRequest, onConfirm }: any) {
+  return (
+    <Modal visible={step > 0} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalHeaderRow}>
+            <Text style={styles.modalTitle}>{step === 1 ? "📥 Déposer des fonds" : "🔐 Confirmer le dépôt"}</Text>
+            <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color={C.muted} /></TouchableOpacity>
+          </View>
+
+          {step === 1 && (
+            <>
+              <Text style={styles.fieldLabel}>Montant à déposer (min 500 FCFA)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: 5000"
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="numeric"
+                placeholderTextColor={C.muted}
+              />
+              <Text style={styles.fieldLabel}>Votre opérateur Mobile Money</Text>
+              <View style={styles.providerGrid}>
+                {PROVIDERS.map(p => (
+                  <TouchableOpacity key={p.id} style={[styles.providerChip, provider.id === p.id && styles.providerChipActive]} onPress={() => setProvider(p)}>
+                    <Text style={styles.providerEmoji}>{p.emoji}</Text>
+                    <Text style={[styles.providerName, provider.id === p.id && { color: C.primary, fontWeight: "700" as any }]}>{p.name}</Text>
+                    {provider.id === p.id && <Ionicons name="checkmark-circle" size={14} color={C.primary} />}
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.fieldLabel}>Votre numéro {provider.name}</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: 07 00 00 00 00"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                maxLength={15}
+                placeholderTextColor={C.muted}
+              />
+              <View style={styles.noticeBox}>
+                <Ionicons name="information-circle" size={16} color="#5D4037" />
+                <Text style={styles.noticeText}>Un code de confirmation OTP sera généré après votre demande.</Text>
+              </View>
+              <TouchableOpacity style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]} onPress={onRequest} disabled={loading || !phone.trim() || !amount}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Continuer →</Text>}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <View style={styles.confirmSummary}>
+                <Text style={styles.confirmSummaryLabel}>Dépôt de</Text>
+                <Text style={[styles.confirmSummaryAmount, { color: C.success }]}>{parseInt(amount).toLocaleString()} FCFA</Text>
+                <Text style={styles.confirmSummaryDetail}>{provider.emoji} {provider.name} · {phone}</Text>
+              </View>
+              {otpGenerated && <OtpDisplay otp={otpGenerated} />}
+              <View style={styles.depositInstructions}>
+                <Text style={styles.depositInstructionsTitle}>📋 Instructions :</Text>
+                <Text style={styles.depositInstructionsText}>
+                  1. Envoyez {parseInt(amount).toLocaleString()} FCFA sur {provider.name}{"\n"}
+                  2. Entrez le code de confirmation ci-dessous{"\n"}
+                  3. Votre solde sera crédité instantanément
+                </Text>
+              </View>
+              <Text style={styles.fieldLabel}>Code de confirmation</Text>
+              <TextInput
+                style={[styles.input, styles.otpInput]}
+                placeholder="_ _ _ _ _ _"
+                value={otpInput}
+                onChangeText={t => setOtpInput(t.replace(/\D/g, "").slice(0, 6))}
+                keyboardType="numeric"
+                maxLength={6}
+                placeholderTextColor={C.muted}
+                textAlign="center"
+              />
+              <TouchableOpacity style={[styles.primaryBtn, (otpInput.length !== 6 || loading) && styles.primaryBtnDisabled]} onPress={onConfirm} disabled={otpInput.length !== 6 || loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>✅ Confirmer le dépôt</Text>}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
-  lockIcon: { fontSize: 56, marginBottom: 16 },
-  lockTitle: { fontSize: 20, fontWeight: "800", color: COLORS.text, marginBottom: 8 },
-  lockSub: { fontSize: 14, color: COLORS.muted, textAlign: "center", lineHeight: 22 },
-  header: {
-    paddingHorizontal: 20, paddingTop: 52, paddingBottom: 16,
-    backgroundColor: COLORS.primary,
-  },
+  flex: { flex: 1 },
+  header: { backgroundColor: C.primary, paddingHorizontal: 20, paddingVertical: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   headerTitle: { fontSize: 22, fontWeight: "900", color: "#fff" },
-  headerSub: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 2 },
-  bannedCard: {
-    margin: 16, backgroundColor: "#FFEBEE", borderRadius: 16, padding: 16,
-    borderWidth: 1.5, borderColor: "#EF9A9A", alignItems: "center",
-  },
-  bannedIcon: { fontSize: 36, marginBottom: 8 },
-  bannedTitle: { fontSize: 16, fontWeight: "800", color: "#C62828", marginBottom: 4 },
-  bannedText: { fontSize: 13, color: "#B71C1C", textAlign: "center", lineHeight: 20 },
+  headerSub: { fontSize: 11, color: "rgba(255,255,255,0.75)", marginTop: 2 },
+  headerRefresh: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
+  tabBar: { flexDirection: "row", backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.border },
+  tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
+  tabActive: { borderBottomWidth: 2.5, borderBottomColor: C.primary },
+  tabText: { fontSize: 12, color: C.muted, fontWeight: "600" },
+  tabTextActive: { color: C.primary, fontWeight: "800" },
+  bannedCard: { margin: 16, backgroundColor: "#FFEBEE", borderRadius: 16, padding: 16, borderWidth: 1.5, borderColor: "#EF9A9A", alignItems: "center", gap: 6 },
+  bannedTitle: { fontSize: 16, fontWeight: "800", color: C.danger },
+  bannedText: { fontSize: 12, color: "#B71C1C", textAlign: "center" },
   balanceCard: {
-    margin: 16, backgroundColor: COLORS.primary, borderRadius: 24, padding: 24,
-    alignItems: "center",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 8,
+    margin: 16, marginTop: 20, backgroundColor: C.primary, borderRadius: 24, padding: 24,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 10,
   },
-  balanceLabel: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.75)", marginBottom: 4 },
-  balancePoints: { fontSize: 44, fontWeight: "900", color: "#fff", letterSpacing: -1 },
-  balanceFcfa: { fontSize: 22, fontWeight: "700", color: "#A5D6A7", marginTop: 4 },
-  balanceInfo: { marginTop: 12, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5 },
-  balanceInfoText: { fontSize: 12, color: "rgba(255,255,255,0.9)", fontWeight: "600" },
-  section: { marginHorizontal: 16, marginBottom: 16 },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  sectionTitle: { fontSize: 15, fontWeight: "800", color: COLORS.text, marginBottom: 10 },
-  progressPill: { backgroundColor: "#E8F5E9", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  progressText: { fontSize: 12, fontWeight: "700", color: COLORS.primary },
-  progressBarBg: { height: 8, backgroundColor: "#E9ECEF", borderRadius: 4, marginBottom: 6, overflow: "hidden" },
-  progressBarFill: { height: "100%", backgroundColor: COLORS.primary, borderRadius: 4 },
-  progressCaption: { fontSize: 12, color: COLORS.muted, marginBottom: 12 },
-  videoButtonWrapper: { marginTop: 4 },
-  missionsCard: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    backgroundColor: "#FFF8E1", borderRadius: 16, padding: 16,
-    borderWidth: 1.5, borderColor: "#FFE082",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+  balanceTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  balanceLabel: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.75)" },
+  liveBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#69F0AE" },
+  liveText: { fontSize: 10, fontWeight: "800", color: "#fff" },
+  balanceAmount: { fontSize: 42, fontWeight: "900", color: "#fff", letterSpacing: -1.5 },
+  balanceSub: { fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 4, marginBottom: 20 },
+  balanceActions: { flexDirection: "row", gap: 12 },
+  actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12, borderRadius: 14 },
+  depositBtn: { backgroundColor: "rgba(255,255,255,0.25)" },
+  withdrawBtn: { backgroundColor: "rgba(255,255,255,0.2)", borderWidth: 1, borderColor: "rgba(255,255,255,0.4)" },
+  actionBtnDisabled: { opacity: 0.4 },
+  actionBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  progressCard: { marginHorizontal: 16, marginBottom: 12, backgroundColor: C.card, borderRadius: 16, padding: 16, gap: 8, borderWidth: 1, borderColor: C.border },
+  progressTitle: { fontSize: 13, fontWeight: "700", color: C.text },
+  progressBarBg: { height: 8, backgroundColor: "#E9ECEF", borderRadius: 4, overflow: "hidden" },
+  progressBarFill: { height: "100%", backgroundColor: C.primary, borderRadius: 4 },
+  progressCaption: { fontSize: 12, color: C.muted },
+  securityCard: { marginHorizontal: 16, marginBottom: 16, backgroundColor: "#E8F5E9", borderRadius: 14, padding: 14, flexDirection: "row", alignItems: "flex-start", gap: 10, borderWidth: 1, borderColor: "#A5D6A7" },
+  securityTitle: { fontSize: 13, fontWeight: "700", color: C.primary, marginBottom: 2 },
+  securitySub: { fontSize: 12, color: "#388E3C", lineHeight: 17 },
+  recentSection: { marginHorizontal: 16, gap: 8 },
+  sectionTitle: { fontSize: 15, fontWeight: "800", color: C.text, marginBottom: 8 },
+  txRow: {
+    flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: C.card, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.border,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
-  missionsLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
-  missionsIcon: { fontSize: 30 },
-  missionsTitle: { fontSize: 14, fontWeight: "800", color: "#5D4037", marginBottom: 3 },
-  missionsSub: { fontSize: 12, color: "#795548", lineHeight: 17, flexWrap: "wrap", maxWidth: "90%" },
-  missionsArrow: { fontSize: 26, color: "#F9A825", fontWeight: "700" },
-  withdrawCard: {
-    backgroundColor: COLORS.card, borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
-  },
-  withdrawRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
-  withdrawIcon: { fontSize: 28 },
-  withdrawTitle: { fontSize: 14, fontWeight: "800", color: COLORS.text, marginBottom: 2 },
-  withdrawSub: { fontSize: 12, color: COLORS.muted, lineHeight: 18 },
-  withdrawProgressBg: {
-    height: 10, backgroundColor: "#E9ECEF", borderRadius: 5, overflow: "hidden",
-    marginBottom: 4, position: "relative", justifyContent: "center",
-  },
-  withdrawProgressFill: { height: "100%", backgroundColor: COLORS.gold, borderRadius: 5 },
-  withdrawProgressLabel: { position: "absolute", right: 8, fontSize: 10, fontWeight: "700", color: "#5D4037" },
-  withdrawBtn: { backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 12, alignItems: "center", marginTop: 4 },
-  withdrawBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
-  historyRow: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: COLORS.card, borderRadius: 12, padding: 12,
-    marginBottom: 8, borderWidth: 1, borderColor: COLORS.border,
-  },
-  historyIcon: { fontSize: 24 },
-  historyTitle: { fontSize: 13, fontWeight: "700", color: COLORS.text },
-  historySub: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
-  historyAmount: { fontSize: 13, fontWeight: "700", color: "#C62828", textAlign: "right" },
-  historyStatus: { fontSize: 11, fontWeight: "600", textAlign: "right", marginTop: 2 },
-  historyEarned: { fontSize: 14, fontWeight: "800", color: COLORS.primary },
-  emptyHistory: { alignItems: "center", paddingVertical: 32 },
-  emptyHistoryIcon: { fontSize: 48, marginBottom: 12 },
-  emptyHistoryText: { fontSize: 16, fontWeight: "700", color: COLORS.text, marginBottom: 4 },
-  emptyHistorySubText: { fontSize: 13, color: COLORS.muted, textAlign: "center" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  modalCard: {
-    backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 24, paddingBottom: 40,
-  },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
-  modalTitle: { fontSize: 18, fontWeight: "800", color: COLORS.text },
-  modalClose: { fontSize: 22, color: COLORS.muted, padding: 4 },
-  modalAmountBadge: {
-    backgroundColor: "#E8F5E9", borderRadius: 16, padding: 16, alignItems: "center",
-    marginBottom: 20, borderWidth: 1.5, borderColor: "#A5D6A7",
-  },
-  modalAmountLabel: { fontSize: 12, color: COLORS.muted, fontWeight: "600", marginBottom: 4 },
-  modalAmountValue: { fontSize: 32, fontWeight: "900", color: COLORS.primary },
-  modalAmountPts: { fontSize: 13, color: COLORS.muted, marginTop: 2 },
-  fieldLabel: { fontSize: 13, fontWeight: "700", color: COLORS.muted, marginBottom: 10 },
-  providerRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  providerChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
-    borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: "#F8F9FA",
-  },
-  providerChipActive: { borderColor: COLORS.primary, backgroundColor: "#E8F5E9" },
-  providerFlag: { fontSize: 16 },
-  providerName: { fontSize: 12, fontWeight: "600", color: COLORS.muted },
-  providerNameActive: { color: COLORS.primary },
-  phoneInput: {
-    backgroundColor: "#F8F9FA", borderRadius: 12, padding: 14,
-    fontSize: 16, color: COLORS.text, borderWidth: 1.5, borderColor: COLORS.border,
-    marginBottom: 16,
-  },
-  modalNotice: { backgroundColor: "#FFF8E1", borderRadius: 10, padding: 12, marginBottom: 16 },
-  modalNoticeText: { fontSize: 12, color: "#5D4037", lineHeight: 18 },
-  confirmBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
-  confirmBtnDisabled: { backgroundColor: "#A5D6A7" },
-  confirmBtnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  txIconBox: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#F3F4F6", alignItems: "center", justifyContent: "center" },
+  txLabel: { fontSize: 14, fontWeight: "700", color: C.text },
+  txDesc: { fontSize: 12, color: C.muted },
+  txStatus: { fontSize: 12, fontWeight: "600" },
+  txAmount: { fontSize: 14, fontWeight: "800" },
+  txDate: { fontSize: 11, color: C.muted, marginTop: 2 },
+  emptyState: { alignItems: "center", paddingVertical: 40, gap: 8 },
+  emptyText: { fontSize: 16, fontWeight: "700", color: C.text },
+  emptySub: { fontSize: 13, color: C.muted, textAlign: "center" },
+  seeAllBtn: { paddingVertical: 12, alignItems: "center", borderTopWidth: 1, borderTopColor: C.border, marginTop: 4 },
+  seeAllText: { fontSize: 13, color: C.primary, fontWeight: "700" },
+  videoProgressCard: { backgroundColor: C.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: C.border },
+  videoProgressTitle: { fontSize: 15, fontWeight: "800", color: C.text },
+  videoPill: { backgroundColor: "#E8F5E9", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  videoPillText: { fontSize: 12, fontWeight: "700", color: C.primary },
+  earningsGuide: { backgroundColor: C.card, borderRadius: 16, padding: 16, gap: 12, borderWidth: 1, borderColor: C.border },
+  earningsGuideTitle: { fontSize: 14, fontWeight: "800", color: C.text, marginBottom: 4 },
+  guideRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  guideText: { flex: 1, fontSize: 13, color: C.text, lineHeight: 18 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+  modalSheet: { backgroundColor: C.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40, gap: 16 },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#E0E0E0", alignSelf: "center", marginBottom: 8 },
+  modalHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  modalTitle: { fontSize: 18, fontWeight: "800", color: C.text },
+  amountBox: { backgroundColor: "#E8F5E9", borderRadius: 14, padding: 16, alignItems: "center", borderWidth: 1, borderColor: "#A5D6A7" },
+  amountBoxLabel: { fontSize: 12, color: C.muted, fontWeight: "600", marginBottom: 4 },
+  amountBoxValue: { fontSize: 30, fontWeight: "900", color: C.primary },
+  fieldLabel: { fontSize: 12, fontWeight: "700", color: C.muted, marginBottom: -4 },
+  input: { backgroundColor: "#F8F9FA", borderRadius: 12, padding: 14, fontSize: 16, color: C.text, borderWidth: 1.5, borderColor: C.border },
+  otpInput: { fontSize: 28, fontWeight: "900", letterSpacing: 8, borderColor: C.primary, backgroundColor: "#E8F5E9" },
+  providerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  providerChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: C.border, backgroundColor: "#F8F9FA" },
+  providerChipActive: { borderColor: C.primary, backgroundColor: "#E8F5E9" },
+  providerEmoji: { fontSize: 16 },
+  providerName: { fontSize: 12, fontWeight: "600", color: C.muted },
+  noticeBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "#FFF8E1", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#FFE082" },
+  noticeText: { flex: 1, fontSize: 12, color: "#5D4037", lineHeight: 18 },
+  primaryBtn: { backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
+  primaryBtnDisabled: { backgroundColor: "#A5D6A7" },
+  primaryBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  secondaryBtn: { paddingVertical: 12, alignItems: "center" },
+  secondaryBtnText: { fontSize: 14, color: C.muted, fontWeight: "600" },
+  confirmSummary: { backgroundColor: "#F8F9FA", borderRadius: 16, padding: 16, alignItems: "center", borderWidth: 1, borderColor: C.border },
+  confirmSummaryLabel: { fontSize: 12, color: C.muted, fontWeight: "600", marginBottom: 4 },
+  confirmSummaryAmount: { fontSize: 32, fontWeight: "900", color: C.danger },
+  confirmSummaryDetail: { fontSize: 14, color: C.muted, marginTop: 4 },
+  otpDisplay: { backgroundColor: "#1B5E20", borderRadius: 16, padding: 20, alignItems: "center", gap: 8 },
+  otpDisplayLabel: { fontSize: 12, color: "rgba(255,255,255,0.75)", fontWeight: "600" },
+  otpDigits: { flexDirection: "row", gap: 8 },
+  otpDigitBox: { width: 42, height: 52, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)" },
+  otpDigitText: { fontSize: 26, fontWeight: "900", color: "#fff" },
+  otpDisplayHint: { fontSize: 11, color: "rgba(255,255,255,0.65)", textAlign: "center" },
+  expiryText: { fontSize: 12, color: C.muted, textAlign: "center" },
+  depositInstructions: { backgroundColor: "#E3F2FD", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#90CAF9" },
+  depositInstructionsTitle: { fontSize: 13, fontWeight: "700", color: "#1565C0", marginBottom: 6 },
+  depositInstructionsText: { fontSize: 13, color: "#1565C0", lineHeight: 22 },
 });

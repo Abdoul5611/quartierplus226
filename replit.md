@@ -66,6 +66,30 @@ Application communautaire de quartier construite avec Expo (React Native) et un 
 - Retraits → table `wallet_transactions` en attente admin + alerte console.
 - Minimum retrait : 1 000 FCFA.
 
+## Système Wallet Production (Avril 2026 — Phase 2)
+
+### OTP 2-étapes (Wave/Orange Money style)
+- **Dépôt** : `POST /api/wallet/deposit/request` → génère OTP 6 chiffres (15min) → utilisateur confirme avec `POST /api/wallet/deposit/confirm` → solde mis à jour + broadcast WebSocket.
+- **Retrait** : `POST /api/wallet/withdraw/request` → OTP (10min) → `POST /api/wallet/withdraw/confirm` → débit solde + notification admin.
+- OTP stocké dans `wallet_transactions` (`otp_code`, `otp_expires_at`) — colonnes ajoutées par migration automatique au démarrage.
+- Validation admin : `POST /api/admin/wallet/deposit/validate?email=...` avec `transaction_id`.
+
+### Colonnes wallet_transactions (DB réelle)
+- `mobile_money_number` (pas `mobile_money`) — schéma Drizzle : `mobileMoney: text("mobile_money_number")`.
+- `otp_code`, `otp_expires_at`, `metadata` (jsonb) — ajoutés via ALTER TABLE IF NOT EXISTS.
+- `metadata` doit être un objet JS brut (pas JSON.stringify) pour les colonnes jsonb Drizzle.
+
+### WebSocket temps réel
+- Chaque client se connecte et envoie `{type:"register", uid}`.
+- `broadcastToUser(uid, msg)` envoie `{type:"balance_update", balance}` après chaque transaction confirmée.
+- `WalletScreen` écoute en temps réel + animation pulsée sur le solde.
+- `useRealtimeBalance()` hook dans ProfilScreen pour affichage cross-screen.
+
+### Admin Cockpit (onglet Admin)
+- 5 modules : toggle jeux, validation retraits, flash broadcast, ban utilisateurs, paramètres commissions.
+- `GlobalFlashListener` dans TabNavigator pour les notifications push globales.
+- Accès réservé aux emails dans `ADMIN_EMAILS` + flag `is_admin` en DB.
+
 ## Publicité
 
 - `RewardedVideoButton` : simulation web (countdown 5s) + future intégration AdMob mobile.

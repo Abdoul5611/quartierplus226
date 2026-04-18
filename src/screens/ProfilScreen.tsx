@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -24,6 +24,54 @@ import { api, Post, Transaction, BASE_URL } from "../services/api";
 import TwoFactorSetup from "../components/TwoFactorSetup";
 import MobileMoneyModal from "../components/MobileMoneyModal";
 import RewardedVideoButton from "../components/RewardedVideoButton";
+
+function useRealtimeBalance(uid: string | null) {
+  const [balance, setBalance] = useState<number | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const fetchBalance = useCallback(async () => {
+    if (!uid) return;
+    try {
+      const res = await fetch(`${BASE_URL}/api/wallet/balance/${uid}`);
+      const data = await res.json();
+      if (res.ok) setBalance(data.balance);
+    } catch {}
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    fetchBalance();
+    let alive = true;
+    let reconnect: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      if (!alive) return;
+      try {
+        const proto = Platform.OS === "web" && typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+        const host = Platform.OS === "web" && typeof window !== "undefined" ? window.location.host : BASE_URL.replace(/^https?:\/\//, "");
+        const ws = new WebSocket(`${proto}//${host}`);
+        wsRef.current = ws;
+        ws.onopen = () => ws.send(JSON.stringify({ type: "register", uid }));
+        ws.onmessage = (e) => {
+          try {
+            const d = JSON.parse(e.data);
+            if (d.type === "balance_update") setBalance(d.balance);
+          } catch {}
+        };
+        ws.onclose = () => { if (alive) reconnect = setTimeout(connect, 8000); };
+        ws.onerror = () => ws.close();
+      } catch {}
+    }
+    connect();
+    return () => {
+      alive = false;
+      if (reconnect) clearTimeout(reconnect);
+      wsRef.current?.close();
+    };
+  }, [uid]);
+
+  return { balance, fetchBalance };
+}
 
 const COLORS = {
   primary: "#2E7D32",
@@ -70,6 +118,8 @@ export default function ProfilScreen() {
   const [twoFAModal, setTwoFAModal] = useState(false);
   const [todayViews, setTodayViews] = useState(0);
   const [maxDaily, setMaxDaily] = useState(15);
+
+  const { balance: realtimeBalance, fetchBalance: refreshBalance } = useRealtimeBalance(firebaseUser?.uid || null);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -467,7 +517,7 @@ export default function ProfilScreen() {
         {[
           { label: "Points", value: dbUser?.points ?? 10, icon: "⭐", onPress: undefined },
           { label: "Mercis", value: dbUser?.merci_count ?? 0, icon: "🙏", onPress: undefined },
-          { label: "Wallet", value: `${(dbUser?.wallet_balance ?? 0).toLocaleString()} FCFA`, icon: "💰", onPress: async () => {
+          { label: "Wallet", value: `${(realtimeBalance ?? dbUser?.wallet_balance ?? 0).toLocaleString()} FCFA`, icon: "💰", onPress: async () => {
             setWalletModal(true);
             setTxLoading(true);
             try {
@@ -861,7 +911,7 @@ export default function ProfilScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.walletBalanceBox}>
                 <Text style={styles.walletBalanceLabel}>Solde disponible</Text>
-                <Text style={styles.walletBalanceAmount}>{(dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA</Text>
+                <Text style={styles.walletBalanceAmount}>{(realtimeBalance ?? dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA</Text>
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                   <TouchableOpacity style={[styles.walletWithdrawBtn, { flex: 1 }]} onPress={() => setMmModal(true)}>
                     <Text style={styles.walletWithdrawBtnText}>📱 Recharger</Text>
@@ -889,7 +939,7 @@ export default function ProfilScreen() {
                     }}
                   />
                 )}
-                {(dbUser?.wallet_balance ?? 0) < 500 && todayViews < maxDaily && (
+                {(realtimeBalance ?? dbUser?.wallet_balance ?? 0) < 500 && todayViews < maxDaily && (
                   <View style={styles.lowCreditHint}>
                     <Text style={styles.lowCreditIcon}>💡</Text>
                     <Text style={styles.lowCreditText}>Crédit insuffisant pour jouer ? Regardez des vidéos pour recharger votre portefeuille !</Text>
@@ -1013,7 +1063,7 @@ export default function ProfilScreen() {
           <View style={styles.confirmCard}>
             <Text style={styles.confirmTitle}>🏦 Retrait</Text>
             <Text style={styles.confirmSub}>
-              Solde: {(dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA{"\n"}
+              Solde: {(realtimeBalance ?? dbUser?.wallet_balance ?? 0).toLocaleString("fr-FR")} FCFA{"\n"}
               Commission 10% déduite. Montant net = 90% du retrait.
             </Text>
             <TextInput

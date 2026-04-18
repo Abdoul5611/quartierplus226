@@ -126,8 +126,11 @@ export const walletTransactions = pgTable("wallet_transactions", {
   description: text("description"),
   relatedItemId: text("related_item_id"),
   status: text("status").default("completed"),
-  mobileMoney: text("mobile_money"),
+  mobileMoney: text("mobile_money_number"),
   mobileMoneyProvider: text("mobile_money_provider"),
+  otpCode: text("otp_code"),
+  otpExpiresAt: timestamp("otp_expires_at"),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

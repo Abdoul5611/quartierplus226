@@ -14,7 +14,15 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
-import { api, LotoTicket } from "../services/api";
+import { api, LotoTicket, BASE_URL } from "../services/api";
+
+function getLotoWsUrl(): string {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}`;
+  }
+  return BASE_URL.replace("https://", "wss://").replace("http://", "ws://");
+}
 
 const COLORS = {
   primary: "#2E7D32",
@@ -67,6 +75,51 @@ export default function LotoScreen({ navigation }: any) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const balance = dbUser?.wallet_balance ?? 0;
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      if (!alive) return;
+      try {
+        const ws = new WebSocket(getLotoWsUrl());
+        wsRef.current = ws;
+        ws.onopen = () => ws.send(JSON.stringify({ type: "register", uid: user.uid }));
+        ws.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === "loto_result") {
+              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+              setPendingTicket(null);
+              refreshUser?.();
+              loadHistory();
+              setResult({
+                drawnNumbers: data.drawn_numbers ?? [],
+                matchedCount: data.matched_count ?? 0,
+                prizeAmount: data.prize_amount ?? 0,
+                newBalance: data.new_balance ?? balance,
+                isJackpot: (data.matched_count ?? 0) >= 5,
+                chosenNumbers: data.chosen_numbers ?? [],
+              });
+            }
+          } catch {}
+        };
+        ws.onclose = () => { if (alive) reconnectTimer = setTimeout(connect, 5000); };
+        ws.onerror = () => ws.close();
+      } catch {}
+    }
+
+    connect();
+    return () => {
+      alive = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [user?.uid]);
 
   const showConfirmToast = () => {
     setShowConfirm(true);

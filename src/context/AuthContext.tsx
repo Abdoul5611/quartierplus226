@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import {
   User as FirebaseUser,
   signInWithEmailAndPassword,
@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
   updateProfile,
 } from "firebase/auth";
+import { Platform } from "react-native";
 import { auth } from "../services/firebase";
 import { api, User } from "../services/api";
 import { registerForPushNotifications } from "../services/notifications";
@@ -26,11 +27,25 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
+function getWsUrl(): string {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}`;
+  }
+  const domain = process.env.EXPO_PUBLIC_DOMAIN || "";
+  if (domain) {
+    const clean = domain.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
+    return `wss://${clean}`;
+  }
+  return "ws://localhost:5000";
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [dbUser, setDbUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const isAdmin = firebaseUser?.email === ADMIN_EMAIL || dbUser?.is_admin === true;
+  const wsRef = useRef<WebSocket | null>(null);
 
   const fetchDbUser = async (uid: string) => {
     try {
@@ -54,6 +69,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!firebaseUser?.uid) {
+      wsRef.current?.close();
+      wsRef.current = null;
+      return;
+    }
+
+    let alive = true;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      if (!alive) return;
+      try {
+        const ws = new WebSocket(getWsUrl());
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "register", uid: firebaseUser!.uid }));
+        };
+
+        ws.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === "balance_update" && typeof data.balance === "number") {
+              setDbUser((prev) =>
+                prev ? { ...prev, wallet_balance: data.balance } : prev
+              );
+            }
+          } catch {}
+        };
+
+        ws.onclose = () => {
+          if (alive) reconnectTimer = setTimeout(connect, 5000);
+        };
+        ws.onerror = () => ws.close();
+      } catch {}
+    }
+
+    connect();
+    return () => {
+      alive = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [firebaseUser?.uid]);
 
   const signIn = async (email: string, password: string) => {
     const cred = await signInWithEmailAndPassword(auth, email, password);

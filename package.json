@@ -10,7 +10,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.2",
+    "@neondatabase/serverless": "^1.1.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-navigation/bottom-tabs": "^7.15.9",
     "@react-navigation/native": "^7.2.2",
@@ -40,9 +40,9 @@
     "otplib": "^13.4.0",
     "pg": "^8.20.0",
     "postgres": "^3.4.9",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "react-native": "^0.81.5",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-native": "^0.81.6",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",

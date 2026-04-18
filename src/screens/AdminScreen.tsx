@@ -25,7 +25,7 @@ const C = {
   border: "#E5E7EB",
 };
 
-type Tab = "cockpit" | "withdrawals" | "help" | "merchants" | "finance" | "jeux";
+type Tab = "cockpit" | "withdrawals" | "deposits" | "help" | "merchants" | "finance" | "jeux";
 
 interface SystemStats { total_wallets: number; total_paris_en_cours: number; user_count: number; active_course: any | null; }
 interface GainEntry { id: string; type: string; to_uid: string; amount: number; description: string; created_at: string; }
@@ -90,6 +90,15 @@ export default function AdminScreen() {
   const [searchResults, setSearchResults] = useState<UserResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [banningUid, setBanningUid] = useState<string | null>(null);
+  const [creditUid, setCreditUid] = useState<string | null>(null);
+  const [creditAmount, setCreditAmount] = useState("");
+  const [creditReason, setCreditReason] = useState("");
+  const [creditModalUid, setCreditModalUid] = useState<string | null>(null);
+  const [crediting, setCrediting] = useState(false);
+
+  const [deposits, setDeposits] = useState<any[]>([]);
+  const [depositsLoading, setDepositsLoading] = useState(false);
+  const [depositActing, setDepositActing] = useState<string | null>(null);
 
   const [commissionMode, setCommissionMode] = useState<"percent" | "fixed">("percent");
   const [commissionValue, setCommissionValue] = useState("20");
@@ -162,6 +171,67 @@ export default function AdminScreen() {
     } catch {}
   }, [adminEmail]);
 
+  const fetchDeposits = useCallback(async () => {
+    if (!isAdmin) return;
+    setDepositsLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/deposits?email=${encodeURIComponent(adminEmail)}`);
+      const data = await res.json();
+      if (res.ok) setDeposits(data);
+    } catch {}
+    setDepositsLoading(false);
+  }, [isAdmin, adminEmail]);
+
+  const handleDepositAction = async (id: string, action: "approved" | "rejected") => {
+    const label = action === "approved" ? "Valider ce dépôt ?" : "Refuser ce dépôt ?";
+    Alert.alert(label, action === "approved" ? "Le solde de l'utilisateur sera crédité immédiatement." : "Le dépôt sera annulé.", [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: action === "approved" ? "✅ Valider" : "❌ Refuser",
+        style: action === "rejected" ? "destructive" : "default",
+        onPress: async () => {
+          setDepositActing(id);
+          try {
+            const res = await fetch(`${BASE_URL}/api/admin/deposits/${id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: adminEmail, action }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+              fetchDeposits();
+              Alert.alert("✅ Succès", action === "approved" ? data.message : "Dépôt refusé.");
+            } else Alert.alert("Erreur", data.error);
+          } catch { Alert.alert("Erreur réseau"); }
+          setDepositActing(null);
+        },
+      },
+    ]);
+  };
+
+  const handleDirectCredit = async () => {
+    if (!creditModalUid) return;
+    const amount = parseInt(creditAmount);
+    if (!amount || amount <= 0) return Alert.alert("Erreur", "Montant invalide");
+    setCrediting(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/users/${creditModalUid}/credit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: adminEmail, amount, reason: creditReason || `Crédit admin: ${amount} FCFA` }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCreditModalUid(null);
+        setCreditAmount("");
+        setCreditReason("");
+        setSearchResults(prev => prev.map(u => u.firebase_uid === creditModalUid ? { ...u, wallet_balance: data.new_balance } : u));
+        Alert.alert("✅ Crédité !", data.message);
+      } else Alert.alert("Erreur", data.error);
+    } catch { Alert.alert("Erreur réseau"); }
+    setCrediting(false);
+  };
+
   useEffect(() => { fetchData(); fetchGameStatus(); fetchCommission(); }, [fetchData, fetchGameStatus, fetchCommission]);
 
   useEffect(() => {
@@ -174,6 +244,8 @@ export default function AdminScreen() {
       fetchGains();
     } else if (activeTab === "jeux") {
       fetchAdminCourse();
+    } else if (activeTab === "deposits") {
+      fetchDeposits();
     }
     return () => { if (statsInterval.current) clearInterval(statsInterval.current); };
   }, [activeTab]);
@@ -184,6 +256,7 @@ export default function AdminScreen() {
     fetchSystemStats();
     if (activeTab === "jeux") fetchAdminCourse();
     if (activeTab === "finance") fetchGains();
+    if (activeTab === "deposits") fetchDeposits();
   };
 
   if (!isAdmin) {
@@ -429,9 +502,12 @@ export default function AdminScreen() {
 
   const gainTypeLabel = (type: string) => ({ course_gain: "🏁 Course", quiz_win: "🎯 Quiz", loto_win: "🎰 Loto" }[type] || type);
 
+  const pendingDeposits = deposits.filter(d => d.status === "pending" || d.status === "awaiting_admin");
+
   const TABS: { id: Tab; label: string; badge?: number }[] = [
     { id: "cockpit", label: "🎛️ Cockpit" },
     { id: "withdrawals", label: "💸 Retraits", badge: pendingW.length },
+    { id: "deposits", label: "📥 Dépôts", badge: pendingDeposits.length },
     { id: "help", label: "🆘 Aide", badge: openH.length },
     { id: "merchants", label: "🏪 Marchands", badge: pendingM.length },
     { id: "finance", label: "💰 Finance" },
@@ -594,16 +670,24 @@ export default function AdminScreen() {
                         {u.is_banned && <Text style={styles.bannedLabel}>🔴 BANNI</Text>}
                         {u.is_admin && <Text style={styles.adminLabel}>🛡️ ADMIN</Text>}
                       </View>
-                      <TouchableOpacity
-                        style={[styles.banBtn, u.is_banned ? styles.unbanBtn : styles.banBtnActive]}
-                        onPress={() => handleBan(u.firebase_uid, u.is_banned)}
-                        disabled={banningUid === u.firebase_uid || u.is_admin}
-                      >
-                        {banningUid === u.firebase_uid
-                          ? <ActivityIndicator size="small" color="#fff" />
-                          : <Text style={styles.banBtnText}>{u.is_banned ? "Débannir" : "🚫 Bannir"}</Text>
-                        }
-                      </TouchableOpacity>
+                      <View style={{ gap: 6 }}>
+                        <TouchableOpacity
+                          style={[styles.banBtn, u.is_banned ? styles.unbanBtn : styles.banBtnActive]}
+                          onPress={() => handleBan(u.firebase_uid, u.is_banned)}
+                          disabled={banningUid === u.firebase_uid || u.is_admin}
+                        >
+                          {banningUid === u.firebase_uid
+                            ? <ActivityIndicator size="small" color="#fff" />
+                            : <Text style={styles.banBtnText}>{u.is_banned ? "Débannir" : "🚫 Bannir"}</Text>
+                          }
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.banBtn, { backgroundColor: C.primary }]}
+                          onPress={() => { setCreditModalUid(u.firebase_uid); setCreditAmount(""); setCreditReason(""); }}
+                        >
+                          <Text style={styles.banBtnText}>💳 Créditer</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   ))}
                 </View>
@@ -690,6 +774,45 @@ export default function AdminScreen() {
                 </Card>
               ))
             )}
+          </>
+        )}
+
+        {activeTab === "deposits" && (
+          <>
+            <Text style={styles.sectionTitle}>Dépôts Mobile Money ({deposits.length})</Text>
+            {depositsLoading ? <ActivityIndicator color={C.primary} style={{ marginVertical: 20 }} />
+              : deposits.length === 0 ? (
+                <View style={styles.empty}><Text style={{ fontSize: 40 }}>✅</Text><Text style={styles.emptyText}>Aucun dépôt</Text></View>
+              ) : (
+                deposits.map(d => (
+                  <Card key={d.id}>
+                    <View style={styles.cardRow}>
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <Text style={styles.cardTitle}>{d.user_name || d.user_email || d.user_id}</Text>
+                        <Text style={[styles.cardAmount, { color: C.primary }]}>+{d.amount?.toLocaleString()} FCFA</Text>
+                        <Text style={styles.cardSub}>{d.mobile_money_provider?.toUpperCase()} — {d.mobile_money}</Text>
+                        <Text style={styles.cardDate}>{formatDate(d.created_at)}</Text>
+                      </View>
+                      {statusBadge(d.status)}
+                    </View>
+                    {(d.status === "pending" || d.status === "awaiting_admin") && (
+                      <View style={{ flexDirection: "row", gap: 10 }}>
+                        {depositActing === d.id ? <ActivityIndicator color={C.primary} style={{ marginVertical: 8 }} /> : (
+                          <>
+                            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: C.success }]} onPress={() => handleDepositAction(d.id, "approved")}>
+                              <Text style={styles.actionBtnText}>✓ Créditer</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: C.danger }]} onPress={() => handleDepositAction(d.id, "rejected")}>
+                              <Text style={styles.actionBtnText}>✗ Refuser</Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
+                      </View>
+                    )}
+                  </Card>
+                ))
+              )
+            }
           </>
         )}
 
@@ -896,6 +1019,42 @@ export default function AdminScreen() {
                 try { await api.respondToHelpRequest(responseModal.requestId, responseText.trim(), ADMIN_EMAIL); setResponseModal({ visible: false, requestId: "" }); fetchData(); Alert.alert("Envoyé."); } catch (e: any) { Alert.alert("Erreur", e.message); }
               }}>
                 <Text style={styles.modalBtnText}>Envoyer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!creditModalUid} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>💳 Crédit direct</Text>
+            <Text style={[styles.cardSub, { marginBottom: 8 }]}>Créditez directement le portefeuille de cet utilisateur.</Text>
+            <TextInput
+              style={[styles.modalInput, { marginBottom: 10 }]}
+              placeholder="Montant en FCFA (ex: 5000)"
+              value={creditAmount}
+              onChangeText={setCreditAmount}
+              keyboardType="numeric"
+              placeholderTextColor={C.sub}
+            />
+            <TextInput
+              style={[styles.modalInput, { marginBottom: 16 }]}
+              placeholder="Raison (optionnel)"
+              value={creditReason}
+              onChangeText={setCreditReason}
+              placeholderTextColor={C.sub}
+            />
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: C.sub }]} onPress={() => { setCreditModalUid(null); setCreditAmount(""); setCreditReason(""); }}>
+                <Text style={styles.modalBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: C.primary, opacity: (!creditAmount || crediting) ? 0.5 : 1 }]}
+                onPress={handleDirectCredit}
+                disabled={!creditAmount || crediting}
+              >
+                {crediting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnText}>✅ Créditer</Text>}
               </TouchableOpacity>
             </View>
           </View>

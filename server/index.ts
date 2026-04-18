@@ -8,6 +8,7 @@ import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 import { verify as totpVerify, generate as totpGenerate, generateSecret } from "otplib";
 const ADMIN_EMAIL = "administrateurquartierplus@gmail.com";
+const ADMIN_EMAILS = [ADMIN_EMAIL];
 
 let wss: WebSocket.Server | null = null;
 
@@ -1568,7 +1569,6 @@ app.patch("/api/admin/merchant-validations/:id", requireAdmin, async (req, res) 
 });
 
 // ─── Admin Dashboard ───────────────────────────────────────────────────
-const ADMIN_EMAILS = [ADMIN_EMAIL];
 
 app.get("/api/admin/dashboard", async (req, res) => {
   try {
@@ -2798,6 +2798,120 @@ wss.on("connection", (ws: WebSocket) => {
     console.error("[Quiz] Table init error:", e);
   }
 })();
+
+// ─── Admin : Liste des dépôts en attente ──────────────────────────────
+app.get("/api/admin/deposits", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+
+    const deposits = await db.select({
+      id: walletTransactions.id,
+      userId: walletTransactions.userId,
+      amount: walletTransactions.amount,
+      description: walletTransactions.description,
+      mobileMoney: walletTransactions.mobileMoney,
+      mobileMoneyProvider: walletTransactions.mobileMoneyProvider,
+      status: walletTransactions.status,
+      createdAt: walletTransactions.createdAt,
+    })
+      .from(walletTransactions)
+      .where(eq(walletTransactions.type, "deposit_request"))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(100);
+
+    const enriched = await Promise.all(
+      deposits.map(async (d) => {
+        const [u] = await db.select({ email: users.email, displayName: users.displayName })
+          .from(users).where(eq(users.firebaseUid, d.userId || ""));
+        return { ...toSnake(d), user_email: u?.email, user_name: u?.displayName };
+      })
+    );
+    res.json(enriched);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Valider / Refuser un dépôt ───────────────────────────────
+app.patch("/api/admin/deposits/:id", async (req, res) => {
+  try {
+    const { email, action } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (!["approved", "rejected"].includes(action)) return res.status(400).json({ error: "action: 'approved' ou 'rejected'" });
+
+    const id = String(req.params.id);
+    const [tx] = await db.select().from(walletTransactions).where(eq(walletTransactions.id, id)).limit(1);
+    if (!tx) return res.status(404).json({ error: "Transaction introuvable" });
+    if (tx.status === "completed" || tx.status === "rejected") return res.status(409).json({ error: "Transaction déjà traitée" });
+
+    if (action === "approved") {
+      const [user] = await db.select().from(users).where(eq(users.firebaseUid, tx.userId!)).limit(1);
+      if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+      const newBalance = (user.walletBalance ?? 0) + (tx.amount ?? 0);
+      await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, tx.userId!));
+      await db.update(walletTransactions).set({ status: "completed" } as any).where(eq(walletTransactions.id, id));
+      await logTransaction("deposit", "admin", tx.userId!, tx.amount ?? 0, 0, `Dépôt validé admin: ${tx.amount} FCFA via ${tx.mobileMoneyProvider?.toUpperCase()}`);
+      broadcastToUser(tx.userId!, { type: "balance_update", balance: newBalance, reason: "deposit_approved_admin", amount: tx.amount ?? 0 });
+      console.log(`[ADMIN] Dépôt approuvé: ${tx.userId} | +${tx.amount} FCFA | nouveau solde: ${newBalance}`);
+      res.json({ success: true, new_balance: newBalance, message: `Dépôt de ${(tx.amount ?? 0).toLocaleString()} FCFA approuvé.` });
+    } else {
+      await db.update(walletTransactions).set({ status: "rejected" } as any).where(eq(walletTransactions.id, id));
+      broadcastToUser(tx.userId!, { type: "transaction_rejected", transaction_id: id, reason: "Dépôt refusé par l'administrateur." });
+      res.json({ success: true, status: "rejected" });
+    }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Crédit direct sur un compte utilisateur ──────────────────
+app.post("/api/admin/users/:uid/credit", async (req, res) => {
+  try {
+    const { email, amount, reason } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const { uid } = req.params;
+    const creditAmount = Number(amount);
+    if (!creditAmount || creditAmount <= 0) return res.status(400).json({ error: "Montant invalide" });
+
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const newBalance = (user.walletBalance ?? 0) + creditAmount;
+    await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, uid));
+    await logTransaction("deposit", "admin_credit", uid, creditAmount, 0, reason || `Crédit admin: ${creditAmount.toLocaleString()} FCFA`);
+
+    // Enregistrer dans wallet_transactions pour l'historique
+    await (db.insert(walletTransactions) as any).values({
+      userId: uid,
+      type: "deposit_request",
+      amount: creditAmount,
+      description: reason || `Crédit direct admin`,
+      status: "completed",
+    });
+
+    broadcastToUser(uid, { type: "balance_update", balance: newBalance, reason: "admin_credit", amount: creditAmount });
+    console.log(`[ADMIN] Crédit direct: ${user.displayName || uid} | +${creditAmount} FCFA | nouveau solde: ${newBalance}`);
+    res.json({ success: true, new_balance: newBalance, user_name: user.displayName, message: `${creditAmount.toLocaleString()} FCFA crédités sur le compte de ${user.displayName || uid}.` });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Notifier via WebSocket un retrait approuvé ───────────────
+app.post("/api/admin/withdrawals/:id/notify", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const id = String(req.params.id);
+    const [tx] = await db.select().from(walletTransactions).where(eq(walletTransactions.id, id)).limit(1);
+    if (!tx) return res.status(404).json({ error: "Transaction introuvable" });
+    broadcastToUser(tx.userId!, { type: "withdrawal_processed", transaction_id: id, message: "Votre retrait a été traité par l'administrateur." });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Serveur QuartierPlus démarré sur le port ${PORT}`);

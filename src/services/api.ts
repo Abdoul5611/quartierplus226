@@ -1,7 +1,7 @@
 
 import { Platform } from "react-native";
 
-const PRODUCTION_URL = "https://replit-export-quartierpluszip-1-zipzipzipzipzipzi--quartieraziz.replit.app";
+const PRODUCTION_URL = "https://9f334176-05f6-43e0-ba6c-1984cf25a437-00-34wkyi99ocliw.janeway.replit.dev";
 
 function buildApiUrl(): string {
   if (Platform.OS === "web") {

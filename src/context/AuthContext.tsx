@@ -32,12 +32,19 @@ function getWsUrl(): string {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${proto}//${window.location.host}`;
   }
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || "";
+  if (apiUrl) {
+    const clean = apiUrl.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
+    return `wss://${clean}`;
+  }
   const domain = process.env.EXPO_PUBLIC_DOMAIN || "";
   if (domain) {
     const clean = domain.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
-    return `wss://${clean}`;
+    if (clean && !clean.includes("kirk") && !clean.includes("picard")) {
+      return `wss://${clean}`;
+    }
   }
-  return "ws://localhost:5000";
+  return "wss://9f334176-05f6-43e0-ba6c-1984cf25a437-00-34wkyi99ocliw.janeway.replit.dev";
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -47,12 +54,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = firebaseUser?.email === ADMIN_EMAIL || dbUser?.is_admin === true;
   const wsRef = useRef<WebSocket | null>(null);
 
-  const fetchDbUser = async (uid: string) => {
+  const fetchDbUser = async (uid: string, firebaseUserRef?: { email?: string | null; displayName?: string | null }) => {
     try {
       const user = await api.getUserByFirebaseUid(uid);
       setDbUser(user);
-    } catch {
-      setDbUser(null);
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      const isNotFound = msg.includes("404") || msg.includes("introuvable") || msg.includes("Not Found");
+      if (isNotFound && firebaseUserRef) {
+        try {
+          const created = await api.createUser({
+            firebase_uid: uid,
+            email: firebaseUserRef.email ?? undefined,
+            display_name: firebaseUserRef.displayName || firebaseUserRef.email?.split("@")[0] || "Utilisateur",
+          } as any);
+          setDbUser(created);
+        } catch {
+          setDbUser(null);
+        }
+      } else {
+        setDbUser(null);
+      }
     }
   };
 
@@ -60,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (user) {
-        await fetchDbUser(user.uid);
+        await fetchDbUser(user.uid, user);
         registerForPushNotifications(user.uid).catch(() => {});
       } else {
         setDbUser(null);
@@ -119,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    await fetchDbUser(cred.user.uid);
+    await fetchDbUser(cred.user.uid, cred.user);
   };
 
   const signUp = async (email: string, password: string, displayName: string, referralCode?: string) => {
@@ -142,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshUser = async () => {
-    if (firebaseUser) await fetchDbUser(firebaseUser.uid);
+    if (firebaseUser) await fetchDbUser(firebaseUser.uid, firebaseUser);
   };
 
   return (

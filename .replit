@@ -54,6 +54,10 @@ localPort = 8080
 externalPort = 8080
 
 [[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
 localPort = 8082
 externalPort = 3001
 
@@ -66,3 +70,4 @@ externalPort = 3000
 [userenv.shared]
 NGROK_AUTHTOKEN = "cr_3CDzU3hXTp21ptB3aOVTdmcex2R"
 FIREBASE_PROJECT_ID = "quartierplus2026"
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID = "505879462771"

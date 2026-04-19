@@ -2449,7 +2449,7 @@ app.get("/api/admin/course-active", async (req, res) => {
 });
 
 // ─── Build Web Statique ────────────────────────────────────────────────
-const WEB_DIST = path.join(__dirname, "..", "..", "web-dist");
+const WEB_DIST = path.join(process.cwd(), "web-dist");
 
 // index.html : jamais en cache navigateur (toujours la version fraîche)
 app.get("/", (_req, res) => {

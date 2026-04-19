@@ -200,13 +200,31 @@ app.post("/api/posts/:id/like", async (req, res) => {
     const [post] = await db.select().from(posts).where(eq(posts.id, id));
     if (!post) return res.status(404).json({ error: "Post introuvable" });
     let likes: string[] = Array.isArray(post.likes) ? (post.likes as string[]) : [];
-    if (likes.includes(userId)) {
+    const wasAlreadyLiked = likes.includes(userId);
+    if (wasAlreadyLiked) {
       likes = likes.filter((l) => l !== userId);
     } else {
       likes = [...likes, userId];
     }
     const [updated] = await db.update(posts).set({ likes: likes as any }).where(eq(posts.id, id)).returning();
     res.json(toSnake(updated));
+
+    if (!wasAlreadyLiked && post.authorId && post.authorId !== userId) {
+      db.select({ pushToken: users.pushToken })
+        .from(users)
+        .where(eq(users.firebaseUid, post.authorId))
+        .then(([author]) => {
+          if (author?.pushToken?.startsWith("ExponentPushToken")) {
+            sendExpoPushNotifications(
+              [author.pushToken],
+              "❤️ Nouveau like",
+              `Quelqu'un a aimé votre publication`,
+              { postId: post.id, type: "new_like" }
+            );
+          }
+        })
+        .catch(() => {});
+    }
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -237,6 +255,23 @@ app.post("/api/posts/:id/comments", async (req, res) => {
       .where(eq(posts.id, id))
       .returning();
     res.json(toSnake(updated));
+
+    if (post.authorId && post.authorId !== author_id) {
+      db.select({ pushToken: users.pushToken })
+        .from(users)
+        .where(eq(users.firebaseUid, post.authorId))
+        .then(([author]) => {
+          if (author?.pushToken?.startsWith("ExponentPushToken")) {
+            sendExpoPushNotifications(
+              [author.pushToken],
+              `💬 ${author_name || "Un voisin"} a commenté`,
+              text?.slice(0, 80) || "a commenté votre publication",
+              { postId: id, type: "new_comment" }
+            );
+          }
+        })
+        .catch(() => {});
+    }
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -514,6 +549,27 @@ app.post("/api/messages", async (req, res) => {
       messageType: message_type || "text",
     } as any).returning();
     res.json(toSnake(msg));
+
+    if (channel?.startsWith("dm:")) {
+      const parts = (channel as string).split(":");
+      const recipientUid = parts.find((p) => p !== "dm" && p !== sender_id);
+      if (recipientUid) {
+        db.select({ pushToken: users.pushToken })
+          .from(users)
+          .where(eq(users.firebaseUid, recipientUid))
+          .then(([recipient]) => {
+            if (recipient?.pushToken?.startsWith("ExponentPushToken")) {
+              sendExpoPushNotifications(
+                [recipient.pushToken],
+                `✉️ ${sender_name || "Un voisin"}`,
+                text?.slice(0, 80) || "Vous avez un nouveau message",
+                { channel, type: "new_dm" }
+              );
+            }
+          })
+          .catch(() => {});
+      }
+    }
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

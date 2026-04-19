@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Platform, View, Text, StyleSheet, TouchableOpacity, Animated, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 import AccueilScreen from "../screens/AccueilScreen";
 import CarteScreen from "../screens/CarteScreen";
 import MarcheScreen from "../screens/MarcheScreen";
@@ -18,6 +19,7 @@ import QuizQuartierScreen from "../screens/QuizQuartierScreen";
 import KenoScreen from "../screens/KenoScreen";
 import { useAuth } from "../context/AuthContext";
 import { BASE_URL } from "../services/api";
+import { addNotificationListener } from "../services/notifications";
 
 const Tab = createBottomTabNavigator();
 const JeuxStack = createNativeStackNavigator();
@@ -94,6 +96,33 @@ function GlobalFlashListener() {
       </TouchableOpacity>
     </Animated.View>
   );
+}
+
+function NotificationHandler() {
+  const navigation = useNavigation<any>();
+
+  useEffect(() => {
+    const cleanup = addNotificationListener(
+      (_notification) => {
+        // Notification reçue en avant-plan : le GlobalFlashListener WebSocket gère déjà l'affichage
+      },
+      (response) => {
+        const data = response.notification.request.content.data as any;
+        if (data?.type === "new_dm" || data?.type === "new_message") {
+          navigation.navigate("Messages");
+        } else if (
+          data?.type === "new_post" ||
+          data?.type === "new_comment" ||
+          data?.type === "new_like"
+        ) {
+          navigation.navigate("Accueil");
+        }
+      }
+    );
+    return cleanup;
+  }, []);
+
+  return null;
 }
 
 function JeuxNavigator() {
@@ -206,6 +235,7 @@ export default function TabNavigator() {
         )}
       </Tab.Navigator>
       <GlobalFlashListener />
+      <NotificationHandler />
     </View>
   );
 }

@@ -31,7 +31,9 @@ export async function registerForPushNotifications(firebaseUid: string): Promise
 
     if (!permissionsResult.granted) return null;
 
-    const tokenData = await Notifications.getExpoPushTokenAsync().catch(() => null);
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: "7d2e7fe4-bfa5-4466-84f2-b18fdc9abeab",
+    }).catch(() => null);
     if (!tokenData) return null;
 
     const token = tokenData.data;

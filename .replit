@@ -71,3 +71,5 @@ externalPort = 3000
 NGROK_AUTHTOKEN = "cr_3CDzU3hXTp21ptB3aOVTdmcex2R"
 FIREBASE_PROJECT_ID = "quartierplus2026"
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID = "505879462771"
+FIREBASE_APP_ID = "1:505879462771:android:5850a1a40bf9ba5e63bb06"
+EXPO_PUBLIC_API_URL = "https://replit-export-quartierpluszip-1-zipzipzipzipzipzi--quartieraziz.replit.app"

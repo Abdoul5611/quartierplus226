@@ -7,8 +7,38 @@ import { users, posts, marche, publications, messages, votes, transactions, vide
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 import { verify as totpVerify, generate as totpGenerate, generateSecret } from "otplib";
+import * as admin from "firebase-admin";
+
 const ADMIN_EMAIL = "administrateurquartierplus@gmail.com";
 const ADMIN_EMAILS = [ADMIN_EMAIL];
+
+// ─── Firebase Admin Init ───────────────────────────────────────────────
+(function initFirebaseAdmin() {
+  if (admin.apps.length) return;
+  try {
+    const raw = (process.env.FIREBASE_SERVICE_ACCOUNT_KEY || "").trim();
+    const isValidJson = raw.startsWith("{") && raw.endsWith("}");
+    if (isValidJson) {
+      const serviceAccount = JSON.parse(raw);
+      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+      console.log("[Firebase Admin] Initialisé via SERVICE_ACCOUNT_KEY");
+      return;
+    }
+    const privateKey = (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+    const projectId = process.env.FIREBASE_PROJECT_ID || "quartierplus2026";
+    if (privateKey && privateKey.includes("PRIVATE KEY")) {
+      const clientEmail = `firebase-adminsdk@${projectId}.iam.gserviceaccount.com`;
+      admin.initializeApp({
+        credential: admin.credential.cert({ projectId, privateKey, clientEmail }),
+      });
+      console.log("[Firebase Admin] Initialisé via FIREBASE_PRIVATE_KEY");
+    } else {
+      console.warn("[Firebase Admin] Credentials invalides — push FCM via Expo Push Service uniquement.");
+    }
+  } catch (e: any) {
+    console.error("[Firebase Admin] Erreur init:", e?.message);
+  }
+})();
 
 let wss: WebSocket.Server | null = null;
 

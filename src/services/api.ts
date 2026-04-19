@@ -1,18 +1,25 @@
 
 import { Platform } from "react-native";
 
-const CURRENT_DEV_URL = "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev";
+const PRODUCTION_URL = "https://replit-export-quartierpluszip-1-zipzipzipzipzipzi--quartieraziz.replit.app";
 
 function buildApiUrl(): string {
   if (Platform.OS === "web") {
     return "";
   }
-  const raw = process.env.EXPO_PUBLIC_DOMAIN || "";
-  if (raw) {
-    let url = raw.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
-    return url ? `https://${url}` : CURRENT_DEV_URL;
+  // Priorité : EXPO_PUBLIC_API_URL → EXPO_PUBLIC_DOMAIN → URL de production
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || "";
+  if (apiUrl) {
+    return apiUrl.trim().replace(/\/$/, "");
   }
-  return CURRENT_DEV_URL;
+  const domain = process.env.EXPO_PUBLIC_DOMAIN || "";
+  if (domain) {
+    let url = domain.trim().replace(/^https?:\/\//, "").replace(/:5000\/?$/, "").replace(/\/$/, "");
+    if (url && !url.includes("kirk") && !url.includes("picard")) {
+      return `https://${url}`;
+    }
+  }
+  return PRODUCTION_URL;
 }
 
 export const BASE_URL = buildApiUrl();

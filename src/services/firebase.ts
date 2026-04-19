@@ -12,11 +12,25 @@ import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "";
-const authDomain = process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "";
-const projectId = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || process.env.EXPO_PUBLIC_PROJECT_ID || "";
-const appId = process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "";
+const authDomain =
+  process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ||
+  `${process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "quartierplus2026"}.firebaseapp.com`;
+const projectId =
+  process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ||
+  process.env.EXPO_PUBLIC_PROJECT_ID ||
+  process.env.FIREBASE_PROJECT_ID ||
+  "quartierplus2026";
+const appId =
+  process.env.EXPO_PUBLIC_FIREBASE_APP_ID ||
+  process.env.FIREBASE_APP_ID ||
+  "";
+const messagingSenderId =
+  process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ||
+  process.env.FIREBASE_MESSAGING_SENDER_ID ||
+  "505879462771";
+const storageBucket = `${projectId}.firebasestorage.app`;
 
-if (!apiKey || !projectId || !appId) {
+if (!apiKey || !appId) {
   console.warn("[QuartierPlus] Firebase: variables d'environnement manquantes.");
 }
 
@@ -27,7 +41,7 @@ let storage: FirebaseStorage;
 
 try {
   const isNewApp = getApps().length === 0;
-  const firebaseConfig = { apiKey, authDomain, projectId, appId };
+  const firebaseConfig = { apiKey, authDomain, projectId, appId, messagingSenderId, storageBucket };
   app = isNewApp ? initializeApp(firebaseConfig) : getApps()[0];
 
   if (isNewApp) {

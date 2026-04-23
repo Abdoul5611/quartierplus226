@@ -21,7 +21,9 @@ import * as ImagePicker from "expo-image-picker";
 import { Video, ResizeMode } from "expo-av";
 import { useNavigation } from "@react-navigation/native";
 import { api, Post } from "../services/api";
-import { useAuth } from "../context/AuthContext";
+export const useAuth = () => {
+  return useContext(AuthContext);
+};
 import PostCard from "../components/PostCard";
 import PublicProfilModal from "../components/PublicProfilModal";
 import AdBanner from "../components/AdBanner";
@@ -46,6 +48,7 @@ const CATEGORIES = [
 ];
 
 export default function AccueilScreen() {
+  const user = (useAuth() as any)?.user;
   const navigation = useNavigation();
   const { firebaseUser, dbUser } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);

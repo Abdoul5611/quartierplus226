@@ -2156,9 +2156,14 @@ app.post("/api/courses", async (req, res) => {
 app.patch("/api/courses/:id/status", async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, admin_uid } = req.body;
-    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
-    if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });
+    const { status, admin_uid, admin_email } = req.body;
+    const emailOk = admin_email && ADMIN_EMAILS.includes(admin_email);
+    let isAdminOk = emailOk;
+    if (!isAdminOk && admin_uid) {
+      const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
+      isAdminOk = !!admin?.isAdmin;
+    }
+    if (!isAdminOk) return res.status(403).json({ error: "Admin requis" });
     if (!["open", "running"].includes(status)) return res.status(400).json({ error: "Status invalide" });
     const [course] = await db.update(courses).set({ status } as any).where(eq(courses.id, id)).returning();
     broadcastToAll({ type: "course_status", courseId: id, status });
@@ -2223,11 +2228,16 @@ app.post("/api/courses/pari", async (req, res) => {
 app.post("/api/courses/:id/finish", async (req, res) => {
   try {
     const { id } = req.params;
-    const { winner_coureur_id, admin_uid } = req.body;
+    const { winner_coureur_id, admin_uid, admin_email } = req.body;
     if (!winner_coureur_id) return res.status(400).json({ error: "winner_coureur_id requis" });
 
-    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
-    if (!admin?.isAdmin) return res.status(403).json({ error: "Admin requis" });
+    const emailOk = admin_email && ADMIN_EMAILS.includes(admin_email);
+    let isAdminOk = emailOk;
+    if (!isAdminOk && admin_uid) {
+      const [admin] = await db.select().from(users).where(eq(users.firebaseUid, admin_uid)).limit(1);
+      isAdminOk = !!admin?.isAdmin;
+    }
+    if (!isAdminOk) return res.status(403).json({ error: "Admin requis" });
 
     const [course] = await db.select().from(courses).where(eq(courses.id, id)).limit(1);
     if (!course) return res.status(404).json({ error: "Course introuvable" });
@@ -2348,6 +2358,78 @@ app.get("/api/admin/gains-history", async (req, res) => {
       .limit(50);
 
     res.json(toSnake(recentWins));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Créer un Quiz en lot (10 questions) ─────────────────────
+app.post("/api/admin/quiz/create-batch", async (req, res) => {
+  try {
+    const { email, titre, prize_pool, questions } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (!Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({ error: "Au moins 1 question requise" });
+    }
+    const cleaned: { question: string; options: string[]; correct: number }[] = [];
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      const text = (q?.question || "").trim();
+      const opts = Array.isArray(q?.options) ? q.options.map((o: string) => (o || "").trim()) : [];
+      const correct = Number(q?.correct_index ?? q?.correct);
+      if (!text) return res.status(400).json({ error: `Question ${i + 1} : texte manquant` });
+      if (opts.length !== 4 || opts.some((o: string) => !o)) {
+        return res.status(400).json({ error: `Question ${i + 1} : 4 options non vides requises` });
+      }
+      if (!Number.isInteger(correct) || correct < 0 || correct > 3) {
+        return res.status(400).json({ error: `Question ${i + 1} : bonne réponse invalide` });
+      }
+      cleaned.push({ question: text, options: opts, correct });
+    }
+
+    QUIZ_QUESTIONS.length = 0;
+    for (const q of cleaned) QUIZ_QUESTIONS.push(q);
+
+    const [session] = await db.insert(quizSessions).values({
+      titre: (titre || "Live Quiz QuartierPlus").toString().trim(),
+      prizePool: Number(prize_pool) || 10000,
+      totalQuestions: cleaned.length,
+      status: "scheduled",
+    } as any).returning();
+
+    quizGame = {
+      sessionId: session.id,
+      status: "waiting",
+      currentQuestionIndex: 0,
+      players: new Map(),
+      timerRef: null,
+      tickRef: null,
+      secondsLeft: 10,
+    };
+
+    broadcastToAll({ type: "quiz_created", session_id: session.id, total_questions: cleaned.length });
+    console.log(`[Quiz] Lot créé: ${session.id} — ${cleaned.length} questions — prize: ${session.prizePool} FCFA`);
+    res.json({ success: true, session: toSnake(session), total_questions: cleaned.length });
+  } catch (err) {
+    console.error("[Admin Quiz Create Batch]", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin : Quiz actif courant ──────────────────────────────────────
+app.get("/api/admin/quiz/active", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const sessions = await db.select().from(quizSessions)
+      .where(drizzleSql`status IN ('scheduled', 'live')`)
+      .orderBy(desc(quizSessions.createdAt))
+      .limit(1);
+    const active = sessions[0] || null;
+    res.json({
+      active: active ? toSnake(active) : null,
+      total_questions: QUIZ_QUESTIONS.length,
+    });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

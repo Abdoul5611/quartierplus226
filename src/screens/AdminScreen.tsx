@@ -181,10 +181,12 @@ export default function AdminScreen() {
   const [selectedWinner, setSelectedWinner] = useState("");
   const [showWinnerPanel, setShowWinnerPanel] = useState(false);
 
-  const [quizQuestion, setQuizQuestion] = useState("");
-  const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
-  const [quizCorrect, setQuizCorrect] = useState<number | null>(null);
+  const [quizTitre, setQuizTitre] = useState("");
+  const [quizPrize, setQuizPrize] = useState("10000");
+  const emptyQuestion = () => ({ question: "", options: ["", "", "", ""], correct: null as number | null });
+  const [quizBatch, setQuizBatch] = useState(() => Array.from({ length: 10 }, emptyQuestion));
   const [quizSending, setQuizSending] = useState(false);
+  const [quizActive, setQuizActive] = useState<{ id: string; titre: string; prize_pool: number; total_questions: number; status: string } | null>(null);
 
   const [gameStatus, setGameStatus] = useState({ course: true, quiz: true, loto: true });
   const [gameToggling, setGameToggling] = useState({ course: false, quiz: false, loto: false });
@@ -361,7 +363,7 @@ export default function AdminScreen() {
     setRefreshing(true);
     fetchData();
     fetchSystemStats();
-    if (activeTab === "jeux") fetchAdminCourse();
+    if (activeTab === "jeux") { fetchAdminCourse(); fetchActiveQuiz(); }
     if (activeTab === "finance") fetchGains();
     if (activeTab === "deposits") fetchDeposits();
   };
@@ -526,10 +528,9 @@ export default function AdminScreen() {
         text: "🏁 Lancer !", onPress: async () => {
           setCourseAction(true);
           try {
-            const adminUser = await (await fetch(`${BASE_URL}/api/users/firebase/${firebaseUser?.uid}`)).json();
             const res = await fetch(`${BASE_URL}/api/courses/${adminCourse.id}/status`, {
               method: "PATCH", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ status: "running", admin_uid: adminUser.firebase_uid }),
+              body: JSON.stringify({ status: "running", admin_uid: firebaseUser?.uid, admin_email: adminEmail }),
             });
             if (res.ok) { await fetchAdminCourse(); Alert.alert("🏁 Départ lancé !", "Tous les utilisateurs ont été notifiés."); }
             else { const d = await res.json(); Alert.alert("Erreur", d.error); }
@@ -549,10 +550,9 @@ export default function AdminScreen() {
         text: "✅ Valider", onPress: async () => {
           setCourseAction(true);
           try {
-            const adminUser = await (await fetch(`${BASE_URL}/api/users/firebase/${firebaseUser?.uid}`)).json();
             const res = await fetch(`${BASE_URL}/api/courses/${adminCourse.id}/finish`, {
               method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ winner_coureur_id: selectedWinner, admin_uid: adminUser.firebase_uid }),
+              body: JSON.stringify({ winner_coureur_id: selectedWinner, admin_uid: firebaseUser?.uid, admin_email: adminEmail }),
             });
             const data = await res.json();
             if (res.ok) {
@@ -569,23 +569,53 @@ export default function AdminScreen() {
     ]);
   };
 
-  const handleAddQuizQuestion = async () => {
-    if (!quizQuestion.trim()) return Alert.alert("Erreur", "Saisissez la question");
-    if (quizOptions.some(o => !o.trim())) return Alert.alert("Erreur", "Remplissez les 4 options");
-    if (quizCorrect === null) return Alert.alert("Erreur", "Sélectionnez la bonne réponse");
-    setQuizSending(true);
+  const updateQuizQuestion = (idx: number, patch: Partial<{ question: string; options: string[]; correct: number | null }>) => {
+    setQuizBatch(prev => prev.map((q, i) => i === idx ? { ...q, ...patch } : q));
+  };
+
+  const fetchActiveQuiz = useCallback(async () => {
+    if (!adminEmail) return;
     try {
-      const res = await fetch(`${BASE_URL}/api/admin/quiz/add-question`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: adminEmail, question: quizQuestion.trim(), options: quizOptions.map(o => o.trim()), correct_index: quizCorrect }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setQuizQuestion(""); setQuizOptions(["", "", "", ""]); setQuizCorrect(null);
-        Alert.alert("✅ Question ajoutée !", `Insérée en première position (${data.total_questions} questions au total).`);
-      } else Alert.alert("Erreur", data.error);
-    } catch { Alert.alert("Erreur réseau"); }
-    setQuizSending(false);
+      const res = await fetch(`${BASE_URL}/api/admin/quiz/active?email=${encodeURIComponent(adminEmail)}`);
+      const d = await res.json();
+      if (res.ok) setQuizActive(d.active);
+    } catch {}
+  }, [adminEmail]);
+
+  const handleCreateQuizBatch = async () => {
+    const ready = quizBatch.filter(q => q.question.trim() && q.options.every(o => o.trim()) && q.correct !== null);
+    if (ready.length === 0) return Alert.alert("Erreur", "Remplissez au moins 1 question complète (texte + 4 options + bonne réponse).");
+    Alert.alert(
+      `🎯 Activer le Quiz ?`,
+      `${ready.length} question(s) prête(s) sur ${quizBatch.length}.\nDotation : ${Number(quizPrize) || 10000} FCFA.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "✅ Créer et activer", onPress: async () => {
+            setQuizSending(true);
+            try {
+              const res = await fetch(`${BASE_URL}/api/admin/quiz/create-batch`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email: adminEmail,
+                  titre: quizTitre.trim() || "Live Quiz QuartierPlus",
+                  prize_pool: Number(quizPrize) || 10000,
+                  questions: ready.map(q => ({ question: q.question.trim(), options: q.options.map(o => o.trim()), correct_index: q.correct })),
+                }),
+              });
+              const data = await res.json();
+              if (res.ok) {
+                setQuizBatch(Array.from({ length: 10 }, emptyQuestion));
+                setQuizTitre("");
+                await fetchActiveQuiz();
+                Alert.alert("✅ Quiz activé !", `${data.total_questions} questions enregistrées. Les joueurs peuvent rejoindre.`);
+              } else Alert.alert("Erreur", data.error);
+            } catch { Alert.alert("Erreur réseau"); }
+            setQuizSending(false);
+          },
+        },
+      ]
+    );
   };
 
   const formatDate = (d: string) => {
@@ -1103,25 +1133,55 @@ export default function AdminScreen() {
             </View>
 
             <View style={{ marginTop: 20 }}>
-              <Text style={styles.sectionTitle}>🎯 Quiz — Ajouter une Question</Text>
+              <Text style={styles.sectionTitle}>🎯 Quiz — Créer un Lot (jusqu'à 10 questions)</Text>
               <Card>
-                <TextInput style={styles.quizInput} placeholder="Question..." value={quizQuestion} onChangeText={setQuizQuestion} multiline numberOfLines={3} textAlignVertical="top" placeholderTextColor={C.sub} />
-                <Text style={[styles.cardSub, { marginBottom: 6 }]}>Options (appuyer pour sélectionner la bonne réponse) :</Text>
-                {quizOptions.map((opt, i) => (
-                  <TouchableOpacity key={i} style={[styles.quizOptionRow, quizCorrect === i && styles.quizOptionCorrect]} onPress={() => setQuizCorrect(i)}>
-                    <View style={[styles.quizOptionRadio, quizCorrect === i && styles.quizOptionRadioActive]}>
-                      {quizCorrect === i && <View style={styles.quizOptionRadioDot} />}
-                    </View>
+                {quizActive ? (
+                  <View style={{ backgroundColor: "#E8F5E9", borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                    <Text style={{ fontWeight: "700", color: C.success }}>✅ Quiz actif : {quizActive.titre}</Text>
+                    <Text style={{ fontSize: 12, color: C.sub }}>{quizActive.total_questions} question(s) — Dotation {quizActive.prize_pool?.toLocaleString()} FCFA — Statut : {quizActive.status}</Text>
+                  </View>
+                ) : (
+                  <View style={{ backgroundColor: "#FFF3E0", borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                    <Text style={{ fontWeight: "700", color: C.orange }}>Aucun quiz actif</Text>
+                    <Text style={{ fontSize: 12, color: C.sub }}>Remplissez les questions ci-dessous puis activez.</Text>
+                  </View>
+                )}
+
+                <TextInput style={styles.quizInput} placeholder="Titre du quiz (optionnel)" value={quizTitre} onChangeText={setQuizTitre} placeholderTextColor={C.sub} />
+                <TextInput style={[styles.quizInput, { marginTop: 8 }]} placeholder="Dotation totale (FCFA)" value={quizPrize} onChangeText={setQuizPrize} keyboardType="numeric" placeholderTextColor={C.sub} />
+
+                {quizBatch.map((q, qi) => (
+                  <View key={qi} style={{ marginTop: 14, padding: 10, borderWidth: 1, borderColor: C.border, borderRadius: 10, backgroundColor: "#FAFAFA" }}>
+                    <Text style={{ fontWeight: "700", color: C.text, marginBottom: 6 }}>Question {qi + 1}</Text>
                     <TextInput
-                      style={[styles.quizOptionInput, quizCorrect === i && { color: C.primary, fontWeight: "700" as any }]}
-                      placeholder={`Option ${i + 1}`} value={opt}
-                      onChangeText={v => { const n = [...quizOptions]; n[i] = v; setQuizOptions(n); }}
+                      style={styles.quizInput}
+                      placeholder={`Texte de la question ${qi + 1}...`}
+                      value={q.question}
+                      onChangeText={v => updateQuizQuestion(qi, { question: v })}
+                      multiline numberOfLines={2} textAlignVertical="top"
                       placeholderTextColor={C.sub}
                     />
-                  </TouchableOpacity>
+                    {q.options.map((opt, oi) => (
+                      <TouchableOpacity key={oi} style={[styles.quizOptionRow, q.correct === oi && styles.quizOptionCorrect, { marginTop: 6 }]} onPress={() => updateQuizQuestion(qi, { correct: oi })}>
+                        <View style={[styles.quizOptionRadio, q.correct === oi && styles.quizOptionRadioActive]}>
+                          {q.correct === oi && <View style={styles.quizOptionRadioDot} />}
+                        </View>
+                        <TextInput
+                          style={[styles.quizOptionInput, q.correct === oi && { color: C.primary, fontWeight: "700" as any }]}
+                          placeholder={`Option ${oi + 1}`} value={opt}
+                          onChangeText={v => { const n = [...q.options]; n[oi] = v; updateQuizQuestion(qi, { options: n }); }}
+                          placeholderTextColor={C.sub}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 ))}
-                <TouchableOpacity style={[styles.bigActionBtn, { backgroundColor: C.primary, marginTop: 12 }]} onPress={handleAddQuizQuestion} disabled={quizSending}>
-                  {quizSending ? <ActivityIndicator color="#fff" /> : <Text style={styles.bigActionBtnText}>➕ Ajouter au Quiz</Text>}
+
+                <TouchableOpacity style={[styles.bigActionBtn, { backgroundColor: C.primary, marginTop: 16 }]} onPress={handleCreateQuizBatch} disabled={quizSending}>
+                  {quizSending ? <ActivityIndicator color="#fff" /> : <Text style={styles.bigActionBtnText}>🚀 Créer & Activer le Quiz</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.bigActionBtn, { backgroundColor: C.sub, marginTop: 8 }]} onPress={fetchActiveQuiz}>
+                  <Text style={styles.bigActionBtnText}>↻ Rafraîchir le statut</Text>
                 </TouchableOpacity>
               </Card>
             </View>

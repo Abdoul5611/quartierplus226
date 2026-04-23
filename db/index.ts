@@ -18,9 +18,11 @@ function buildConnectionString(rawUrl: string): string {
 
 const connectionString = buildConnectionString(process.env.DATABASE_URL);
 
+const useSsl = /neon\.tech|sslmode=require/i.test(process.env.DATABASE_URL);
+
 const pool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false },
+  ssl: useSsl ? { rejectUnauthorized: false } : false,
 });
 
 export const db = drizzle(pool, { schema });

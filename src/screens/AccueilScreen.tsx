@@ -335,9 +335,6 @@ export default function AccueilScreen() {
             {userLocation ? "  📍" : ""}
           </Text>
         </View>
-        <TouchableOpacity style={styles.publishBtn} onPress={() => setModalVisible(true)}>
-          <Text style={styles.publishBtnText}>+ Publier</Text>
-        </TouchableOpacity>
       </View>
 
       {/* ─── Barre de progression upload vidéo ─── */}
@@ -390,6 +387,66 @@ export default function AccueilScreen() {
           keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
             <>
+              {/* ─── Bloc composition style Facebook ─── */}
+              <View style={styles.composeCard}>
+                <View style={styles.composeTop}>
+                  <View style={styles.composeAvatar}>
+                    <Text style={styles.composeAvatarText}>
+                      {(dbUser?.display_name || firebaseUser?.displayName || "Q")
+                        .charAt(0)
+                        .toUpperCase()}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.composePlaceholder}
+                    onPress={() => setModalVisible(true)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.composePlaceholderText}>
+                      Publier quelque chose...
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.composeDivider} />
+                <View style={styles.composeActions}>
+                  <TouchableOpacity
+                    style={styles.composeAction}
+                    onPress={() => { setModalVisible(true); setTimeout(() => pickMedia("image"), 350); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.composeActionIcon}>📷</Text>
+                    <Text style={styles.composeActionText}>Photo</Text>
+                  </TouchableOpacity>
+                  <View style={styles.composeActionDivider} />
+                  <TouchableOpacity
+                    style={styles.composeAction}
+                    onPress={() => { setModalVisible(true); setTimeout(() => pickMedia("video"), 350); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.composeActionIcon}>🎥</Text>
+                    <Text style={styles.composeActionText}>Vidéo</Text>
+                  </TouchableOpacity>
+                  <View style={styles.composeActionDivider} />
+                  <TouchableOpacity
+                    style={styles.composeAction}
+                    onPress={() => { setPollMode(true); setModalVisible(true); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.composeActionIcon}>📊</Text>
+                    <Text style={styles.composeActionText}>Sondage</Text>
+                  </TouchableOpacity>
+                  <View style={styles.composeActionDivider} />
+                  <TouchableOpacity
+                    style={styles.composeAction}
+                    onPress={() => setModalVisible(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.composeActionIcon}>📍</Text>
+                    <Text style={styles.composeActionText}>Lieu</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               {nextQuiz && (
                 <TouchableOpacity
                   style={styles.quizBanner}
@@ -727,6 +784,87 @@ const styles = StyleSheet.create({
   coursBoxSub: { fontSize: 12, color: "#795548", marginBottom: 10 },
   coursInput: { backgroundColor: "#fff", borderRadius: 10, padding: 10, fontSize: 14, color: COLORS.text, borderWidth: 1, borderColor: "#F9A825" },
   coursNote: { fontSize: 12, color: "#2E7D32", fontWeight: "600", marginTop: 6 },
+  // ─── Bloc composition style Facebook ────────────────────────────────────
+  composeCard: {
+    backgroundColor: COLORS.card,
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  composeTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  composeAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  composeAvatarText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 18,
+  },
+  composePlaceholder: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: COLORS.bg,
+  },
+  composePlaceholderText: {
+    color: COLORS.muted,
+    fontSize: 15,
+    fontWeight: "400",
+  },
+  composeDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginHorizontal: 0,
+  },
+  composeActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  composeAction: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+  },
+  composeActionDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: COLORS.border,
+  },
+  composeActionIcon: {
+    fontSize: 18,
+  },
+  composeActionText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
   // ─── Barre de progression upload vidéo ───────────────────────────────────
   uploadBanner: {
     backgroundColor: "#1B5E20",

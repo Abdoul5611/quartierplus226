@@ -300,6 +300,20 @@ export type NewVote = typeof votes.$inferInsert;
 export type LotoTicket = typeof lotoTickets.$inferSelect;
 export type NewLotoTicket = typeof lotoTickets.$inferInsert;
 
+export const agilityScores = pgTable("agility_scores", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userUid: text("user_uid").notNull(),
+  userName: text("user_name"),
+  score: integer("score").notNull(),
+  durationMs: integer("duration_ms").notNull().default(10000),
+  rewardAmount: integer("reward_amount").notNull().default(0),
+  rewarded: boolean("rewarded").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type AgilityScore = typeof agilityScores.$inferSelect;
+export type NewAgilityScore = typeof agilityScores.$inferInsert;
+
 export type Course = typeof courses.$inferSelect;
 export type NewCourse = typeof courses.$inferInsert;
 export type CoursePari = typeof courseParis.$inferSelect;

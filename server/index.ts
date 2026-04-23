@@ -3,7 +3,7 @@ import http from "http";
 import WebSocket from "ws";
 import path from "path";
 import { db } from "../db";
-import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests, lotoTickets, courses, courseParis, quizSessions } from "../db/schema";
+import { users, posts, marche, publications, messages, votes, transactions, videoViews, walletTransactions, helpRequests, lotoTickets, courses, courseParis, quizSessions, agilityScores } from "../db/schema";
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { cloudinary } from "../lib/cloudinary";
 import { verify as totpVerify, generate as totpGenerate, generateSecret } from "otplib";
@@ -2875,6 +2875,127 @@ app.post("/api/games/keno/play", async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
+// ─── Course d'Agilité (clic mania 10s) ───────────────────────────────
+const AGILITY_DEFAULT_REWARD = 1000; // FCFA crédité au top scorer
+const AGILITY_MIN_DURATION_MS = 5000;
+const AGILITY_MAX_DURATION_MS = 30000;
+const AGILITY_MAX_SCORE = 500; // anti-bot
+
+app.post("/api/agility/score", async (req, res) => {
+  try {
+    const { user_uid, user_name, score, duration_ms } = req.body;
+    if (!user_uid) return res.status(400).json({ error: "user_uid requis" });
+    const s = Number(score);
+    const d = Number(duration_ms) || 10000;
+    if (!Number.isInteger(s) || s < 0) return res.status(400).json({ error: "score invalide" });
+    if (s > AGILITY_MAX_SCORE) return res.status(400).json({ error: "Score impossible — anti-fraude" });
+    if (d < AGILITY_MIN_DURATION_MS || d > AGILITY_MAX_DURATION_MS) {
+      return res.status(400).json({ error: "duration_ms hors limites" });
+    }
+    const [user] = await db.select().from(users).where(eq(users.firebaseUid, user_uid)).limit(1);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (user.isBanned) return res.status(403).json({ error: "Compte suspendu" });
+
+    const [row] = await db.insert(agilityScores).values({
+      userUid: user_uid,
+      userName: user_name || user.displayName || "Voisin",
+      score: s,
+      durationMs: d,
+    } as any).returning();
+
+    broadcastToAll({ type: "agility_score", user_uid, user_name: row.userName, score: s });
+    res.json(toSnake(row));
+  } catch (err) {
+    console.error("[Agility Score]", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/agility/leaderboard", async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const rows = await db.select().from(agilityScores)
+      .orderBy(desc(agilityScores.score), desc(agilityScores.createdAt))
+      .limit(limit);
+    res.json(toSnake(rows));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/agility/best/:uid", async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const rows = await db.select().from(agilityScores)
+      .where(eq(agilityScores.userUid, uid))
+      .orderBy(desc(agilityScores.score))
+      .limit(1);
+    res.json(rows[0] ? toSnake(rows[0]) : null);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/admin/agility/leaderboard", async (req, res) => {
+  try {
+    const { email } = req.query as { email?: string };
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const rows = await db.select().from(agilityScores)
+      .orderBy(desc(agilityScores.score), desc(agilityScores.createdAt))
+      .limit(limit);
+    res.json(toSnake(rows));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/admin/agility/reward", async (req, res) => {
+  try {
+    const { email, score_id, amount } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    if (!score_id) return res.status(400).json({ error: "score_id requis" });
+    const reward = Number(amount) || AGILITY_DEFAULT_REWARD;
+    if (reward <= 0 || reward > 100000) return res.status(400).json({ error: "Montant invalide" });
+
+    const [row] = await db.select().from(agilityScores).where(eq(agilityScores.id, score_id)).limit(1);
+    if (!row) return res.status(404).json({ error: "Score introuvable" });
+    if (row.rewarded) return res.status(409).json({ error: "Score déjà récompensé" });
+
+    const [winner] = await db.select().from(users).where(eq(users.firebaseUid, row.userUid)).limit(1);
+    if (!winner) return res.status(404).json({ error: "Joueur introuvable" });
+
+    const newBal = (winner.walletBalance ?? 0) + reward;
+    await db.update(users).set({ walletBalance: newBal } as any).where(eq(users.firebaseUid, row.userUid));
+    await db.update(agilityScores).set({ rewarded: true, rewardAmount: reward } as any).where(eq(agilityScores.id, score_id));
+    await logTransaction("agility_win", "agility_system", row.userUid, reward, 0,
+      `🏃 Course d'Agilité — ${row.score} clics`, score_id);
+    broadcastToUser(row.userUid, {
+      type: "agility_reward",
+      score: row.score,
+      reward_amount: reward,
+      new_balance: newBal,
+      message: `🏃 Bravo ! Tu as gagné ${reward} FCFA pour ton score de ${row.score} clics !`,
+    });
+
+    res.json({ success: true, score_id, user_uid: row.userUid, reward, new_balance: newBal });
+  } catch (err) {
+    console.error("[Admin Agility Reward]", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/admin/agility/reset", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const result = await db.delete(agilityScores).returning({ id: agilityScores.id });
+    res.json({ success: true, deleted: result.length });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // SPA fallback : toutes les routes inconnues renvoient index.html sans cache
 app.use((_req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -2883,7 +3004,6 @@ app.use((_req, res) => {
   res.sendFile(path.join(WEB_DIST, "index.html"));
 });
 
-// ─── HTTP Server + WebSocket ──────────────────────────────────────────
 const httpServer = http.createServer(app);
 wss = new WebSocket.Server({ server: httpServer });
 

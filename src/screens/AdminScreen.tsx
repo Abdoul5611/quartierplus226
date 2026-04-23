@@ -618,6 +618,87 @@ export default function AdminScreen() {
     );
   };
 
+  const [agilityLeaderboard, setAgilityLeaderboard] = useState<any[]>([]);
+  const [agilityLoading, setAgilityLoading] = useState(false);
+
+  const fetchAgilityLeaderboard = useCallback(async () => {
+    if (!adminEmail) return;
+    setAgilityLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/agility/leaderboard?email=${encodeURIComponent(adminEmail)}&limit=50`);
+      const d = await res.json();
+      if (res.ok && Array.isArray(d)) setAgilityLeaderboard(d);
+    } catch {}
+    setAgilityLoading(false);
+  }, [adminEmail]);
+
+  const handleAgilityReward = (scoreId: string, userName: string, score: number) => {
+    Alert.prompt
+      ? Alert.prompt(
+          "🎁 Distribuer le gain",
+          `Récompenser ${userName} (${score} clics). Montant en FCFA :`,
+          [
+            { text: "Annuler", style: "cancel" },
+            {
+              text: "Valider",
+              onPress: async (val?: string) => {
+                const amount = Number(val) || 1000;
+                await sendAgilityReward(scoreId, amount);
+              },
+            },
+          ],
+          "plain-text",
+          "1000"
+        )
+      : Alert.alert(
+          "🎁 Distribuer 1000 FCFA ?",
+          `Récompenser ${userName} (${score} clics) avec 1000 FCFA.`,
+          [
+            { text: "Annuler", style: "cancel" },
+            { text: "Valider", onPress: () => sendAgilityReward(scoreId, 1000) },
+          ]
+        );
+  };
+
+  const sendAgilityReward = async (scoreId: string, amount: number) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/agility/reward`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: adminEmail, score_id: scoreId, amount }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        Alert.alert("✅ Gain distribué", `${amount.toLocaleString()} FCFA crédité.`);
+        fetchAgilityLeaderboard();
+      } else Alert.alert("Erreur", d.error || "Échec");
+    } catch {
+      Alert.alert("Erreur réseau");
+    }
+  };
+
+  const handleAgilityReset = () => {
+    Alert.alert("⚠️ Réinitialiser ?", "Tous les scores de la Course d'Agilité seront supprimés.", [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Confirmer", style: "destructive", onPress: async () => {
+          try {
+            const res = await fetch(`${BASE_URL}/api/admin/agility/reset`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: adminEmail }),
+            });
+            const d = await res.json();
+            if (res.ok) {
+              Alert.alert("✅ Réinitialisé", `${d.deleted} score(s) supprimé(s).`);
+              fetchAgilityLeaderboard();
+            } else Alert.alert("Erreur", d.error || "Échec");
+          } catch { Alert.alert("Erreur réseau"); }
+        }
+      }
+    ]);
+  };
+
   const formatDate = (d: string) => {
     const dt = new Date(d);
     return `${dt.getDate().toString().padStart(2, "0")}/${(dt.getMonth() + 1).toString().padStart(2, "0")} ${dt.getHours().toString().padStart(2, "0")}:${dt.getMinutes().toString().padStart(2, "0")}`;
@@ -1182,6 +1263,46 @@ export default function AdminScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.bigActionBtn, { backgroundColor: C.sub, marginTop: 8 }]} onPress={fetchActiveQuiz}>
                   <Text style={styles.bigActionBtnText}>↻ Rafraîchir le statut</Text>
+                </TouchableOpacity>
+              </Card>
+            </View>
+
+            <View style={{ marginTop: 24 }}>
+              <Text style={styles.sectionTitle}>🏃 Course d'Agilité — Classement</Text>
+              <Card>
+                <View style={[styles.cardRow, { justifyContent: "space-between" }]}>
+                  <Text style={styles.cardSub}>Top scores en attente de récompense</Text>
+                  <TouchableOpacity onPress={fetchAgilityLeaderboard}><Text style={{ color: C.primary, fontWeight: "700" }}>↻</Text></TouchableOpacity>
+                </View>
+                {agilityLoading ? <ActivityIndicator color={C.primary} style={{ marginVertical: 16 }} />
+                  : agilityLeaderboard.length === 0 ? (
+                    <Text style={[styles.cardSub, { textAlign: "center", paddingVertical: 12 }]}>Aucun score pour l'instant.</Text>
+                  ) : (
+                    agilityLeaderboard.map((row, i) => (
+                      <View key={row.id} style={[styles.coureurRow, { gap: 8 }]}>
+                        <Text style={{ fontSize: 14, fontWeight: "700", width: 32, color: C.text }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 13, fontWeight: "700", color: C.text }} numberOfLines={1}>{row.user_name || "Voisin"}</Text>
+                          <Text style={{ fontSize: 11, color: C.sub }}>{row.score} clics{row.rewarded ? ` • ✅ ${(row.reward_amount || 0).toLocaleString()} FCFA` : ""}</Text>
+                        </View>
+                        {row.rewarded ? (
+                          <Text style={{ fontSize: 11, color: C.primary, fontWeight: "700" }}>Récompensé</Text>
+                        ) : (
+                          <TouchableOpacity
+                            style={{ backgroundColor: C.gold, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}
+                            onPress={() => handleAgilityReward(row.id, row.user_name, row.score)}
+                          >
+                            <Text style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>🎁 Distribuer</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))
+                  )}
+                <TouchableOpacity
+                  style={[styles.bigActionBtn, { backgroundColor: C.danger, marginTop: 12 }]}
+                  onPress={handleAgilityReset}
+                >
+                  <Text style={styles.bigActionBtnText}>🗑️ Réinitialiser le classement</Text>
                 </TouchableOpacity>
               </Card>
             </View>

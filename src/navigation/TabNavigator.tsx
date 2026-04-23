@@ -14,6 +14,7 @@ import WalletScreen from "../screens/WalletScreen";
 import JeuxScreen from "../screens/JeuxScreen";
 import LotoScreen from "../screens/LotoScreen";
 import CourseDeRueScreen from "../screens/CourseDeRueScreen";
+import CourseAgiliteScreen from "../screens/CourseAgiliteScreen";
 import LiveQuizScreen from "../screens/LiveQuizScreen";
 import ScratchScreen from "../screens/ScratchScreen";
 import QuizQuartierScreen from "../screens/QuizQuartierScreen";
@@ -142,6 +143,7 @@ function JeuxNavigator() {
       <JeuxStack.Screen name="JeuxHub" component={JeuxScreen} />
       <JeuxStack.Screen name="Loto" component={LotoScreen} />
       <JeuxStack.Screen name="CourseDeRue" component={CourseDeRueScreen} />
+      <JeuxStack.Screen name="CourseAgilite" component={CourseAgiliteScreen} />
       <JeuxStack.Screen name="LiveQuiz" component={LiveQuizScreen} />
       <JeuxStack.Screen name="Scratch" component={ScratchScreen} />
       <JeuxStack.Screen name="QuizQuartier" component={QuizQuartierScreen} />

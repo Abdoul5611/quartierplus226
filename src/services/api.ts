@@ -24,11 +24,22 @@ function buildApiUrl(): string {
 
 export const BASE_URL = buildApiUrl();
 
-async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
+async function fetchAPI<T>(path: string, options?: RequestInit, token?: string): Promise<T> {
+  const headers: HeadersInit = { 
+    "Content-Type": "application/json", 
+    ...options?.headers 
+  };
+  
+  // Si un token est fourni, on l'ajoute pour que le serveur accepte le paiement
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
+    headers,
   });
+
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || `Erreur ${res.status}`);
@@ -255,8 +266,19 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  checkMMPaymentStatus: (txId: string, userUid: string, amount: number) =>
-    fetchAPI<{ status: string; newBalance?: number }>(`/api/payment/mm/status/${txId}?userUid=${userUid}&amount=${amount}`),
+  checkBoostPaymentStatus: (txId: string, userUid: string, targetId: string, targetType: string, token?: string) =>
+    fetchAPI<{ status: string; boostExpiresAt?: string }>(
+      `/api/payment/boost/status/${txId}?userUid=${encodeURIComponent(userUid)}&targetId=${encodeURIComponent(targetId)}&targetType=${encodeURIComponent(targetType)}`,
+      { method: "GET" },
+      token
+    ),
+
+  checkMMPaymentStatus: (txId: string, userUid: string, amount: number, token?: string) =>
+    fetchAPI<{ status: string; newBalance?: number }>(
+      `/api/payment/mm/status/${txId}?userUid=${userUid}&amount=${amount}`,
+      { method: "GET" },
+      token
+    ),
 
   boostItem: (userUid: string, targetId: string, targetType: "post" | "marche") =>
     fetchAPI<{ success: boolean; newBalance: number; boostExpiresAt: string }>("/api/wallet/boost", {

@@ -842,8 +842,20 @@ app.get("/api/wallet/transactions/:uid", async (req, res) => {
 const FEDAPAY_SECRET_KEY = process.env.FEDAPAY_SECRET_KEY || process.env.FEDAPAY_API_KEY || "";
 const FEDAPAY_PUBLIC_KEY = process.env.FEDAPAY_PUBLIC_KEY || "";
 const SUPPORT_EMAIL = "abdoulquartierplus@gmail.com";
-const FEDAPAY_ENV = process.env.FEDAPAY_ENV || "production";
+
+// Auto-détection sandbox/production selon le préfixe de la clé
+// sk_sandbox_... → sandbox | sk_live_... → production | FEDAPAY_ENV force si défini
+function detectFedapayEnv(): "production" | "sandbox" {
+  const forced = process.env.FEDAPAY_ENV;
+  if (forced === "sandbox") return "sandbox";
+  if (forced === "production") return "production";
+  if (FEDAPAY_SECRET_KEY.startsWith("sk_sandbox_") || FEDAPAY_SECRET_KEY.startsWith("sk_test_")) return "sandbox";
+  if (FEDAPAY_SECRET_KEY.startsWith("sk_live_")) return "production";
+  return "sandbox";
+}
+const FEDAPAY_ENV = detectFedapayEnv();
 const FEDAPAY_BASE = FEDAPAY_ENV === "production" ? "https://api.fedapay.com/v1" : "https://sandbox.fedapay.com/v1";
+console.log(`[FedaPay] Environnement: ${FEDAPAY_ENV} → ${FEDAPAY_BASE}`);
 
 const REPLIT_BASE_URL = process.env.REPLIT_DEV_DOMAIN
   ? `https://${process.env.REPLIT_DEV_DOMAIN}`

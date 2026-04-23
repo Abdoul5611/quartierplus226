@@ -10,6 +10,7 @@ import MarcheScreen from "../screens/MarcheScreen";
 import MessagesScreen from "../screens/MessagesScreen";
 import ProfilScreen from "../screens/ProfilScreen";
 import AdminScreen from "../screens/AdminScreen";
+import WalletScreen from "../screens/WalletScreen";
 import JeuxScreen from "../screens/JeuxScreen";
 import LotoScreen from "../screens/LotoScreen";
 import CourseDeRueScreen from "../screens/CourseDeRueScreen";
@@ -233,6 +234,11 @@ export default function TabNavigator() {
         {isAdmin && (
           <Tab.Screen name="Admin" component={AdminScreen} options={{ tabBarLabel: "Admin" }} />
         )}
+        <Tab.Screen
+          name="Portefeuille"
+          component={WalletScreen}
+          options={{ tabBarButton: () => null, tabBarStyle: { display: "none" } }}
+        />
       </Tab.Navigator>
       <GlobalFlashListener />
       <NotificationHandler />

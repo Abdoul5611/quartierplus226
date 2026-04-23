@@ -522,7 +522,7 @@ export default function AccueilScreen() {
               {!pollMode && (
                 <>
                   <TouchableOpacity style={styles.optionBtn} onPress={() => pickMedia("image")}>
-                    <Text style={styles.optionIcon}>📷</Text>
+                     <Text style={styles.optionIcon}>📷</Text>
                     <Text style={styles.optionLabel}>Photo</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.optionBtn} onPress={() => pickMedia("video")}>
@@ -757,4 +757,4 @@ const styles = StyleSheet.create({
     backgroundColor: "#69F0AE",
     borderRadius: 2,
   },
-});
+});                   

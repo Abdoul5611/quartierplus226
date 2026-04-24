@@ -336,6 +336,12 @@ export const api = {
       body: JSON.stringify({ status, email }),
     }),
 
+  confirmWithdrawal: (id: string, email: string) =>
+    fetchAPI<{ success: boolean; alreadyCompleted?: boolean; debited_at_confirmation?: boolean; payout?: any; transaction?: WithdrawalRequest }>(`/api/admin/withdrawals/${id}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
   getAdminHelpRequests: (email: string) =>
     fetchAPI<HelpRequest[]>(`/api/admin/help-requests?email=${encodeURIComponent(email)}`),
 

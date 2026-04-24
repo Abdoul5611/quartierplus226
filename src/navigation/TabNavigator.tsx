@@ -10,6 +10,7 @@ import MarcheScreen from "../screens/MarcheScreen";
 import MessagesScreen from "../screens/MessagesScreen";
 import ProfilScreen from "../screens/ProfilScreen";
 import AdminScreen from "../screens/AdminScreen";
+import GestionRetraitsScreen from "../screens/admin/GestionRetraitsScreen";
 import WalletScreen from "../screens/WalletScreen";
 import JeuxScreen from "../screens/JeuxScreen";
 import LotoScreen from "../screens/LotoScreen";
@@ -25,6 +26,7 @@ import { addNotificationListener } from "../services/notifications";
 
 const Tab = createBottomTabNavigator();
 const JeuxStack = createNativeStackNavigator();
+const AdminStack = createNativeStackNavigator();
 
 function getWsUrl(): string {
   if (Platform.OS === "web") {
@@ -152,6 +154,25 @@ function JeuxNavigator() {
   );
 }
 
+function AdminNavigator() {
+  return (
+    <AdminStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: "slide_from_right",
+        gestureEnabled: true,
+        gestureDirection: "horizontal",
+        fullScreenGestureEnabled: true,
+        animationDuration: 280,
+        contentStyle: { backgroundColor: "#F0F2F5" },
+      }}
+    >
+      <AdminStack.Screen name="AdminHub" component={AdminScreen} />
+      <AdminStack.Screen name="GestionRetraits" component={GestionRetraitsScreen} />
+    </AdminStack.Navigator>
+  );
+}
+
 const COLORS = {
   primary: "#2E7D32",
   inactive: "#9E9E9E",
@@ -234,7 +255,7 @@ export default function TabNavigator() {
         <Tab.Screen name="Messages" component={MessagesScreen} options={{ tabBarLabel: "Messages" }} />
         <Tab.Screen name="Profil" component={ProfilScreen} options={{ tabBarLabel: "Profil" }} />
         {isAdmin && (
-          <Tab.Screen name="Admin" component={AdminScreen} options={{ tabBarLabel: "Admin" }} />
+          <Tab.Screen name="Admin" component={AdminNavigator} options={{ tabBarLabel: "Admin" }} />
         )}
         <Tab.Screen
           name="Portefeuille"

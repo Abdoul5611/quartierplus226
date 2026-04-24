@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
+import { useNavigation } from "@react-navigation/native";
 import { api, WithdrawalRequest, HelpRequest, MerchantValidation } from "../services/api";
 import { BASE_URL } from "../services/api";
 
@@ -160,6 +161,7 @@ function SectionHeader({ icon, title }: { icon: string; title: string }) {
 
 export default function AdminScreen() {
   const { firebaseUser, dbUser, isAdmin } = useAuth();
+  const navigation = useNavigation<any>();
   const [activeTab, setActiveTab] = useState<Tab>("cockpit");
   const adminEmail = firebaseUser?.email || dbUser?.email || ADMIN_EMAIL;
 
@@ -808,6 +810,25 @@ export default function AdminScreen() {
             </Card>
 
             <Card>
+              <TouchableOpacity
+                style={styles.gestionRetraitsBtn}
+                onPress={() => navigation.navigate("GestionRetraits")}
+                activeOpacity={0.85}
+              >
+                <View style={styles.gestionRetraitsIcon}>
+                  <Ionicons name="cash" size={26} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.gestionRetraitsTitle}>Gestion des Retraits</Text>
+                  <Text style={styles.gestionRetraitsSub}>
+                    {pendingW.length} en attente · Confirmer & notifier
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={22} color="#fff" />
+              </TouchableOpacity>
+            </Card>
+
+            <Card>
               <SectionHeader icon="💸" title="Zone de Paiement — Retraits en attente" />
               {pendingW.length === 0 ? (
                 <View style={styles.miniEmpty}><Text style={styles.miniEmptyText}>✅ Aucune demande en attente</Text></View>
@@ -1420,6 +1441,10 @@ const styles = StyleSheet.create({
   refuseBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: C.danger, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   refuseBtnText: { fontSize: 12, color: "#fff", fontWeight: "700" },
   seeMoreBtn: { marginTop: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border, alignItems: "center" },
+  gestionRetraitsBtn: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, backgroundColor: C.primary, borderRadius: 12 },
+  gestionRetraitsIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  gestionRetraitsTitle: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  gestionRetraitsSub: { fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 },
   seeMoreText: { fontSize: 13, color: C.primary, fontWeight: "600" },
 
   flashTitleInput: { borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: C.text },

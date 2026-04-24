@@ -2996,8 +2996,12 @@ app.post("/api/admin/agility/reset", async (req, res) => {
   }
 });
 
-// SPA fallback : toutes les routes inconnues renvoient index.html sans cache
-app.use((_req, res) => {
+// SPA fallback : toutes les routes inconnues renvoient index.html sans cache.
+// Ne capture pas les routes API (sinon les endpoints définis plus bas dans le fichier
+// renverraient du HTML au lieu de JSON).
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/")) return next();
+  if (req.method !== "GET") return next();
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
@@ -3444,6 +3448,120 @@ app.post("/api/admin/users/:uid/credit", async (req, res) => {
     res.json({ success: true, new_balance: newBalance, user_name: user.displayName, message: `${creditAmount.toLocaleString()} FCFA crédités sur le compte de ${user.displayName || uid}.` });
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Helpers : Expo Push + FedaPay Payout ─────────────────────────────
+async function sendExpoPush(token: string | null | undefined, title: string, body: string, data?: Record<string, any>) {
+  if (!token || !token.startsWith("ExponentPushToken")) return false;
+  try {
+    const r = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json", "Accept-Encoding": "gzip, deflate" },
+      body: JSON.stringify([{ to: token, sound: "default", title, body, data: data || {} }]),
+    });
+    return r.ok;
+  } catch (e: any) {
+    console.warn("[ExpoPush] Erreur envoi:", e?.message);
+    return false;
+  }
+}
+
+const FEDAPAY_PAYOUTS_ENABLED = process.env.FEDAPAY_PAYOUTS_ENABLED === "true";
+
+async function fedapayPayout(amount: number, phoneNumber: string, provider: string, recipientName: string, description: string) {
+  if (!FEDAPAY_PAYOUTS_ENABLED) return { skipped: true as const, reason: "FEDAPAY_PAYOUTS_ENABLED=false (transfert manuel par l'admin)" };
+  if (!FEDAPAY_SECRET_KEY) return { skipped: true as const, reason: "FEDAPAY_SECRET_KEY manquante" };
+  try {
+    const payout = await fedapayRequest("POST", "/payouts", {
+      amount,
+      currency: { iso: "XOF" },
+      mode: provider.toLowerCase(),
+      customer: { firstname: recipientName || "Client", lastname: "QuartierPlus", phone_number: { number: phoneNumber, country: "BJ" } },
+      description,
+    });
+    const payoutId = payout?.["v1/payout"]?.id || payout?.payout?.id || payout?.id;
+    if (!payoutId) throw new Error("Réponse FedaPay sans payout_id");
+    await fedapayRequest("PUT", `/payouts/${payoutId}/start`, {});
+    return { skipped: false as const, payoutId: String(payoutId) };
+  } catch (e: any) {
+    return { skipped: false as const, error: e?.message || String(e) };
+  }
+}
+
+// ─── Admin : Confirmer un retrait (débit déjà fait, marquer complété + notifier) ───
+app.post("/api/admin/withdrawals/:id/confirm", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const id = String(req.params.id);
+
+    const [tx] = await db.select().from(walletTransactions).where(eq(walletTransactions.id, id)).limit(1);
+    if (!tx) return res.status(404).json({ error: "Demande introuvable" });
+    if (tx.status === "completed") return res.json({ success: true, alreadyCompleted: true, transaction: toSnake(tx) });
+    if (tx.type !== "withdrawal_request") return res.status(400).json({ error: "Cette transaction n'est pas un retrait" });
+
+    const amount = tx.amount ?? 0;
+    const userUid = tx.userId || "";
+    const phone = tx.mobileMoney || "";
+    const provider = (tx.mobileMoneyProvider || "").toLowerCase();
+
+    const [recipient] = await db.select().from(users).where(eq(users.firebaseUid, userUid)).limit(1);
+    if (!recipient) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const currentBalance = recipient.walletBalance ?? 0;
+    let debitedNow = false;
+    if (currentBalance >= amount && (tx.metadata as any)?.debited !== true) {
+      await db.update(users).set({ walletBalance: currentBalance - amount } as any).where(eq(users.firebaseUid, userUid));
+      debitedNow = true;
+    }
+
+    const payoutResult = phone && provider
+      ? await fedapayPayout(amount, phone, provider, recipient.displayName || "Client", `Retrait QuartierPlus ${id}`)
+      : { skipped: true as const, reason: "Coordonnées Mobile Money manquantes" };
+
+    const [updated] = await db.update(walletTransactions)
+      .set({
+        status: "completed",
+        metadata: {
+          ...(tx.metadata as any || {}),
+          debited: true,
+          confirmedAt: new Date().toISOString(),
+          confirmedBy: email,
+          payout: payoutResult,
+        } as any,
+      } as any)
+      .where(eq(walletTransactions.id, id))
+      .returning();
+
+    await logTransaction("withdrawal_completed", ADMIN_UID, userUid, amount, 0,
+      `Retrait confirmé ${recipient.displayName || userUid} (${provider} ${phone}) — ${(payoutResult as any).payoutId || (payoutResult as any).reason || (payoutResult as any).error || "manuel"}`,
+      id);
+
+    broadcastToUser(userUid, {
+      type: "withdrawal_processed",
+      transaction_id: id,
+      status: "completed",
+      amount,
+      message: `Votre retrait de ${amount} FCFA a été complété. Vérifiez votre ${provider.toUpperCase()}.`,
+    });
+
+    await sendExpoPush(
+      recipient.pushToken,
+      "Retrait complété ✅",
+      `${amount} FCFA envoyés sur votre ${provider.toUpperCase()} (${phone}).`,
+      { type: "withdrawal_completed", transactionId: id, amount }
+    );
+
+    res.json({
+      success: true,
+      transaction: toSnake(updated),
+      debited_at_confirmation: debitedNow,
+      payout: payoutResult,
+    });
+  } catch (err: any) {
+    console.error("[ConfirmWithdrawal] Erreur:", err?.message);
+    res.status(500).json({ error: String(err?.message || err) });
   }
 });
 

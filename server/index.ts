@@ -197,10 +197,20 @@ app.post("/api/posts", async (req, res) => {
 app.delete("/api/posts/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.body;
+    const { userId, userEmail } = req.body;
     const [post] = await db.select().from(posts).where(eq(posts.id, id));
     if (!post) return res.status(404).json({ error: "Post introuvable" });
-    if (post.authorId !== userId) return res.status(403).json({ error: "Non autorisé" });
+
+    const isAuthor = post.authorId === userId;
+    const isAdminByEmail = !!userEmail && ADMIN_EMAILS.includes(userEmail);
+    let isAdminByDb = false;
+    if (!isAuthor && !isAdminByEmail && userId) {
+      const [u] = await db.select().from(users).where(eq(users.firebaseUid, userId)).limit(1);
+      isAdminByDb = !!u?.isAdmin;
+    }
+    if (!isAuthor && !isAdminByEmail && !isAdminByDb) {
+      return res.status(403).json({ error: "Non autorisé" });
+    }
 
     const extractPublicId = (url: string): string | null => {
       const match = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[^.]+$/);

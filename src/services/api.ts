@@ -353,6 +353,12 @@ export const api = {
       recent_credits: any[];
     }>(`/api/admin/balance?email=${encodeURIComponent(email)}`),
 
+  deletePost: (id: string, userId: string, userEmail?: string) =>
+    fetchAPI<{ success: boolean }>(`/api/posts/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ userId, userEmail }),
+    }),
+
   adminWithdraw: (data: { email: string; amount: number; provider: string; phone: string }) =>
     fetchAPI<{
       success: boolean;

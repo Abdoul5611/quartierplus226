@@ -62,7 +62,7 @@ function FullscreenMedia({
   mediaUrl,
   mediaType,
   postId,
-  isAuthor,
+  canDelete,
   onClose,
   onDeleted,
 }: {
@@ -70,7 +70,7 @@ function FullscreenMedia({
   mediaUrl: string;
   mediaType: "image" | "video";
   postId: string;
-  isAuthor: boolean;
+  canDelete: boolean;
   onClose: () => void;
   onDeleted?: () => void;
 }) {
@@ -123,7 +123,7 @@ function FullscreenMedia({
     if (!firebaseUser) return;
     Alert.alert(
       "Supprimer la publication",
-      "Cette action est irréversible. Le média sera supprimé de Cloudinary.",
+      "Êtes-vous sûr ? Cette action est irréversible — le média sera aussi supprimé du stockage.",
       [
         { text: "Annuler", style: "cancel" },
         {
@@ -132,12 +132,7 @@ function FullscreenMedia({
           onPress: async () => {
             setDeleting(true);
             try {
-              const res = await fetch(`/api/posts/${postId}`, {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId: firebaseUser.uid }),
-              });
-              if (!res.ok) throw new Error("Suppression échouée");
+              await api.deletePost(postId, firebaseUser.uid, firebaseUser.email || undefined);
               onClose();
               onDeleted?.();
             } catch {
@@ -202,7 +197,7 @@ function FullscreenMedia({
             <Text style={fs.toolLabel}>Partager</Text>
           </TouchableOpacity>
 
-          {isAuthor && (
+          {canDelete && (
             <TouchableOpacity style={[fs.toolBtn, fs.toolBtnDanger]} onPress={handleDelete} disabled={deleting}>
               <View style={[fs.toolIcon, fs.toolIconDanger]}>
                 {deleting ? (
@@ -461,7 +456,7 @@ function PollWidget({ post }: { post: Post }) {
 }
 
 function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: PostCardProps) {
-  const { firebaseUser } = useAuth();
+  const { firebaseUser, isAdmin } = useAuth();
   const [likes, setLikes] = useState<string[]>(Array.isArray(post.likes) ? post.likes : []);
   const [comments, setComments] = useState<any[]>(Array.isArray(post.comments) ? post.comments : []);
   const [fullscreenVisible, setFullscreenVisible] = useState(false);
@@ -469,6 +464,7 @@ function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: Pos
   const [payingCours, setPayingCours] = useState(false);
   const [boosting, setBoosting] = useState(false);
   const [boostModalVisible, setBoostModalVisible] = useState(false);
+  const [deletingCard, setDeletingCard] = useState(false);
   const [isBoostedLocal, setIsBoostedLocal] = useState<boolean>(() => {
     if (!post.is_boosted) return false;
     if (!post.boost_expires_at) return false;
@@ -480,6 +476,35 @@ function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: Pos
   });
   const isLiked = firebaseUser ? likes.includes(firebaseUser.uid) : false;
   const isAuthor = firebaseUser?.uid === post.author_id;
+  const canDelete = !!firebaseUser && (isAuthor || isAdmin);
+
+  const handleDeletePost = () => {
+    if (!firebaseUser || !canDelete) return;
+    Alert.alert(
+      "Supprimer la publication",
+      isAuthor
+        ? "Êtes-vous sûr ? Cette action est irréversible — le média sera aussi supprimé du stockage."
+        : "Action administrateur : supprimer cette publication ainsi que son média ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingCard(true);
+            try {
+              await api.deletePost(post.id, firebaseUser.uid, firebaseUser.email || undefined);
+              onDeleted?.();
+            } catch (e: any) {
+              Alert.alert("Erreur", e?.message || "Impossible de supprimer la publication.");
+            } finally {
+              setDeletingCard(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleBoost = () => {
     if (!firebaseUser) { Alert.alert("Connexion requise", "Connectez-vous pour propulser votre annonce."); return; }
@@ -586,8 +611,25 @@ function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: Pos
             </View>
           </View>
         </TouchableOpacity>
-        <View style={[styles.categoryBadge, { backgroundColor: getCategoryColor(post.category) }]}>
-          <Text style={styles.categoryText}>{getCategoryLabel(post.category)}</Text>
+        <View style={styles.headerRight}>
+          <View style={[styles.categoryBadge, { backgroundColor: getCategoryColor(post.category) }]}>
+            <Text style={styles.categoryText}>{getCategoryLabel(post.category)}</Text>
+          </View>
+          {canDelete && (
+            <TouchableOpacity
+              style={styles.trashBtn}
+              onPress={handleDeletePost}
+              disabled={deletingCard}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Supprimer la publication"
+            >
+              {deletingCard ? (
+                <ActivityIndicator size="small" color={COLORS.emergency} />
+              ) : (
+                <Text style={styles.trashIcon}>🗑️</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -670,7 +712,7 @@ function PostCard({ post, onLiked, onDeleted, userLocation, onAuthorPress }: Pos
           mediaUrl={mediaUrl}
           mediaType={mediaType}
           postId={post.id}
-          isAuthor={isAuthor}
+          canDelete={canDelete}
           onClose={() => setFullscreenVisible(false)}
           onDeleted={onDeleted || onLiked}
         />
@@ -797,6 +839,14 @@ const styles = StyleSheet.create({
   distanceText: { fontSize: 12, color: COLORS.primary, fontWeight: "600" },
   categoryBadge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
   categoryText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 6 },
+  trashBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: "#FFEBEE",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "#FFCDD2",
+  },
+  trashIcon: { fontSize: 14 },
   content: { fontSize: 15, color: COLORS.text, lineHeight: 22, marginBottom: 10, paddingHorizontal: 14 },
   postImage: { width: "100%", height: 300, marginBottom: 0 },
   imageExpandHint: {

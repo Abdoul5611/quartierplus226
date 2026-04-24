@@ -21,9 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Video, ResizeMode } from "expo-av";
 import { useNavigation } from "@react-navigation/native";
 import { api, Post } from "../services/api";
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
+import { useAuth } from "../context/AuthContext";
 import PostCard from "../components/PostCard";
 import PublicProfilModal from "../components/PublicProfilModal";
 import AdBanner from "../components/AdBanner";

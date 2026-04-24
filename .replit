@@ -73,7 +73,7 @@ NGROK_AUTHTOKEN = "3Cm7NvnZJrbjZEMJPWDhgIlJVLI_dkG1KnFuYvxmnThf2vw9"
 FIREBASE_PROJECT_ID = "quartierplus2026"
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID = "505879462771"
 FIREBASE_APP_ID = "1:505879462771:android:5850a1a40bf9ba5e63bb06"
-EXPO_PUBLIC_API_URL = "https://9f334176-05f6-43e0-ba6c-1984cf25a437-00-34wkyi99ocliw.janeway.replit.dev"
+EXPO_PUBLIC_API_URL = "https://12847caf-4d28-463d-8405-0c7da09cdd7f-00-1wsfgibjmoy0i.worf.replit.dev"
 
 [deployment]
 deploymentTarget = "autoscale"

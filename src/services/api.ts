@@ -342,6 +342,28 @@ export const api = {
       body: JSON.stringify({ email }),
     }),
 
+  getAdminBalance: (email: string) =>
+    fetchAPI<{
+      admin_uid: string;
+      admin_email: string;
+      wallet_balance: number;
+      breakdown: Record<string, { count: number; total: number }>;
+      total_withdrawn: number;
+      recent_withdrawals: any[];
+      recent_credits: any[];
+    }>(`/api/admin/balance?email=${encodeURIComponent(email)}`),
+
+  adminWithdraw: (data: { email: string; amount: number; provider: string; phone: string }) =>
+    fetchAPI<{
+      success: boolean;
+      transaction: any;
+      new_balance: number;
+      payout: { ok?: boolean; payoutId?: string; status?: string; reason?: string; error?: string };
+    }>(`/api/admin/withdraw`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
   getAdminHelpRequests: (email: string) =>
     fetchAPI<HelpRequest[]>(`/api/admin/help-requests?email=${encodeURIComponent(email)}`),
 

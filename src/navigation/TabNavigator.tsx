@@ -11,6 +11,7 @@ import MessagesScreen from "../screens/MessagesScreen";
 import ProfilScreen from "../screens/ProfilScreen";
 import AdminScreen from "../screens/AdminScreen";
 import GestionRetraitsScreen from "../screens/admin/GestionRetraitsScreen";
+import RetraitAdminScreen from "../screens/admin/RetraitAdminScreen";
 import WalletScreen from "../screens/WalletScreen";
 import JeuxScreen from "../screens/JeuxScreen";
 import LotoScreen from "../screens/LotoScreen";
@@ -169,6 +170,7 @@ function AdminNavigator() {
     >
       <AdminStack.Screen name="AdminHub" component={AdminScreen} />
       <AdminStack.Screen name="GestionRetraits" component={GestionRetraitsScreen} />
+      <AdminStack.Screen name="RetraitAdmin" component={RetraitAdminScreen} />
     </AdminStack.Navigator>
   );
 }

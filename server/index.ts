@@ -730,6 +730,29 @@ async function logTransaction(type: string, fromUid: string | null, toUid: strin
   } as any);
 }
 
+// ─── Centralisation des gains administrateur ───────────────────────────
+// Compte canonique : utilisateur avec email = ADMIN_EMAIL.
+// Tous les gains (commissions, boosts, jeux, pubs) sont crédités ici.
+async function getAdminUserCanonical() {
+  const [admin] = await db.select().from(users).where(eq(users.email, ADMIN_EMAIL)).limit(1);
+  return admin || null;
+}
+
+async function creditAdmin(amount: number, source: string, fromUid: string | null, description: string, relatedId?: string) {
+  if (!amount || amount <= 0) return { credited: false, reason: "amount<=0" };
+  const admin = await getAdminUserCanonical();
+  if (!admin || !admin.firebaseUid) {
+    console.warn(`[creditAdmin] Compte admin canonique introuvable (${ADMIN_EMAIL}). Source: ${source}, montant: ${amount}`);
+    await logTransaction(`admin_credit_${source}`, fromUid, "admin_unattributed", amount, 0,
+      `[ORPHELIN: admin canonique manquant] ${description}`, relatedId);
+    return { credited: false, reason: "admin_user_missing" };
+  }
+  const newBalance = (admin.walletBalance ?? 0) + amount;
+  await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, admin.firebaseUid));
+  await logTransaction(`admin_credit_${source}`, fromUid, admin.firebaseUid, amount, 0, description, relatedId);
+  return { credited: true, newBalance, adminUid: admin.firebaseUid };
+}
+
 // Payer pour un cours
 app.post("/api/wallet/pay-course", async (req, res) => {
   try {
@@ -808,15 +831,11 @@ app.post("/api/wallet/withdraw", async (req, res) => {
 
     await db.update(users).set({ walletBalance: balance - amount } as any).where(eq(users.firebaseUid, userUid));
 
-    const [admin] = await db.select().from(users).where(eq(users.firebaseUid, ADMIN_UID));
-    if (admin) {
-      await db.update(users).set({ walletBalance: (admin.walletBalance ?? 0) + commission } as any).where(eq(users.firebaseUid, ADMIN_UID));
-    }
+    await creditAdmin(commission, "withdrawal_commission", userUid,
+      `Commission retrait ${user.displayName || userUid} (${amount} F → comm. ${commission} F)`);
 
     await logTransaction("withdrawal", userUid, null, net, commission,
       `Retrait de ${amount.toLocaleString("fr-FR")} F (commission: ${commission} F)`, undefined);
-    await logTransaction("commission", userUid, ADMIN_UID, commission, 0,
-      `Commission retrait ${user.displayName || userUid}`, undefined);
 
     res.json({ success: true, net, commission, newBalance: balance - amount });
   } catch (err) {
@@ -968,15 +987,8 @@ async function applyBoostToItem(targetId: string, targetType: string) {
 }
 
 async function creditAdminsForBoost(fromUid: string, targetId: string) {
-  const share = Math.floor(BOOST_PRICE / ADMIN_EMAILS.length);
-  for (const adminEmail of ADMIN_EMAILS) {
-    const [adminUser] = await db.select().from(users).where(eq(users.email, adminEmail));
-    if (adminUser) {
-      await db.update(users).set({ walletBalance: (adminUser.walletBalance ?? 0) + share } as any).where(eq(users.email, adminEmail));
-      await logTransaction("boost", fromUid, adminUser.firebaseUid || ADMIN_UID, share, 0,
-        `Boost publicitaire — propulsé 48h`, targetId);
-    }
-  }
+  await creditAdmin(BOOST_PRICE, "boost_revenue", fromUid,
+    `Boost publicitaire — propulsé 48h`, targetId);
 }
 
 app.post("/api/payment/boost/initiate", async (req, res) => {
@@ -1546,6 +1558,104 @@ app.post("/api/auth/2fa/toggle", async (req, res) => {
   }
 });
 
+// ─── Admin - Solde centralisé & Retrait Admin ──────────────────────────
+app.get("/api/admin/balance", async (req, res) => {
+  try {
+    const email = String(req.query.email || "");
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const admin = await getAdminUserCanonical();
+    if (!admin) return res.status(404).json({ error: "Compte admin introuvable" });
+
+    const credits = await db.select().from(transactions)
+      .where(eq(transactions.toUid, admin.firebaseUid || ""))
+      .orderBy(desc(transactions.createdAt))
+      .limit(500);
+
+    const breakdown: Record<string, { count: number; total: number }> = {};
+    for (const t of credits) {
+      const key = (t.type || "other").replace(/^admin_credit_/, "");
+      if (!breakdown[key]) breakdown[key] = { count: 0, total: 0 };
+      breakdown[key].count += 1;
+      breakdown[key].total += t.amount || 0;
+    }
+
+    const adminWithdrawals = await db.select().from(walletTransactions)
+      .where(eq(walletTransactions.userId, admin.firebaseUid || ""))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(50);
+    const totalWithdrawn = adminWithdrawals
+      .filter(w => w.type === "admin_withdrawal" && w.status === "completed")
+      .reduce((s, w) => s + (w.amount || 0), 0);
+
+    res.json({
+      admin_uid: admin.firebaseUid,
+      admin_email: admin.email,
+      wallet_balance: admin.walletBalance ?? 0,
+      breakdown,
+      total_withdrawn: totalWithdrawn,
+      recent_withdrawals: toSnake(adminWithdrawals.filter(w => w.type === "admin_withdrawal").slice(0, 10)),
+      recent_credits: toSnake(credits.slice(0, 20)),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+app.post("/api/admin/withdraw", async (req, res) => {
+  try {
+    const { email, amount, provider, phone } = req.body;
+    if (!email || !ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: "Accès refusé" });
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: "Montant invalide" });
+    const provNorm = String(provider || "").toLowerCase().trim();
+    if (!["mtn", "moov", "wave", "orange"].includes(provNorm)) return res.status(400).json({ error: "Opérateur invalide (MTN, MOOV, WAVE, ORANGE)" });
+    const phoneStr = String(phone || "").replace(/\s/g, "");
+    if (!/^[0-9+]{8,15}$/.test(phoneStr)) return res.status(400).json({ error: "Numéro de téléphone invalide" });
+
+    const admin = await getAdminUserCanonical();
+    if (!admin || !admin.firebaseUid) return res.status(404).json({ error: "Compte admin introuvable" });
+
+    const balance = admin.walletBalance ?? 0;
+    if (balance < amt) return res.status(400).json({ error: `Solde insuffisant. Solde actuel : ${balance} FCFA` });
+
+    const newBalance = balance - amt;
+    await db.update(users).set({ walletBalance: newBalance } as any).where(eq(users.firebaseUid, admin.firebaseUid));
+
+    const payoutResult = await fedapayPayout(amt, phoneStr, provNorm, admin.displayName || "Admin QuartierPlus", `Retrait administrateur — ${email}`);
+
+    const [adminTx] = await db.insert(walletTransactions).values({
+      userId: admin.firebaseUid,
+      type: "admin_withdrawal",
+      amount: amt,
+      description: `Retrait administrateur ${provNorm.toUpperCase()} ${phoneStr}`,
+      mobileMoney: phoneStr,
+      mobileMoneyProvider: provNorm,
+      status: "completed",
+      metadata: {
+        requestedBy: email,
+        balanceBefore: balance,
+        balanceAfter: newBalance,
+        payout: payoutResult,
+        confirmedAt: new Date().toISOString(),
+      } as any,
+    } as any).returning();
+
+    await logTransaction("admin_withdrawal", admin.firebaseUid, null, amt, 0,
+      `Retrait administrateur (${provNorm.toUpperCase()} ${phoneStr}) — ${(payoutResult as any).payoutId || (payoutResult as any).reason || (payoutResult as any).error || "manuel"}`,
+      adminTx.id);
+
+    res.json({
+      success: true,
+      transaction: toSnake(adminTx),
+      new_balance: newBalance,
+      payout: payoutResult,
+    });
+  } catch (err: any) {
+    console.error("[AdminWithdraw] Erreur:", err?.message);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
 // ─── Admin - Demandes de retrait ────────────────────────────────────────
 app.get("/api/admin/withdrawals", requireAdmin, async (req, res) => {
   try {
@@ -1830,6 +1940,11 @@ app.post("/api/loto/buy", async (req, res) => {
 
     await logTransaction("loto_bet", userUid, null, LOTO_TICKET_PRICE, 0,
       `Ticket Loto 5/30 — numéros: ${chosenNumbers.join(",")} [en attente tirage]`, undefined);
+
+    // Centralisation: le prix du ticket est crédité à l'admin (les gains du loto sont
+    // payés depuis cette cagnotte au tirage). Permet de tracer les revenus du jeu.
+    await creditAdmin(LOTO_TICKET_PRICE, "loto_ticket", userUid,
+      `Vente ticket Loto 5/30 (utilisateur ${user.displayName || userUid})`);
 
     // Ticket saved as "pending" — drawnNumbers=[] until admin triggers draw
     const [ticket] = await db.insert(lotoTickets).values({
@@ -2247,6 +2362,12 @@ app.post("/api/courses/:id/finish", async (req, res) => {
     const totalMises = allParis.reduce((s, p) => s + p.montant, 0);
     const adminCut = Math.floor(totalMises * COURSE_ADMIN_PERCENT);
     const cagnotte = totalMises - adminCut + (course.carryoverAmount ?? 0);
+
+    // Centralisation : créditer la part admin (commission de la course) au compte canonique
+    if (adminCut > 0) {
+      await creditAdmin(adminCut, "course_commission", null,
+        `Commission Course de Rue (${(COURSE_ADMIN_PERCENT * 100).toFixed(0)}% de ${totalMises} F)`, id);
+    }
 
     const parisGagnants = allParis.filter((p) => p.coureurId === winner_coureur_id);
     let carryoverAmount = 0;

@@ -829,6 +829,25 @@ export default function AdminScreen() {
             </Card>
 
             <Card>
+              <TouchableOpacity
+                style={[styles.gestionRetraitsBtn, { backgroundColor: "#1B5E20" }]}
+                onPress={() => navigation.navigate("RetraitAdmin")}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.gestionRetraitsIcon, { backgroundColor: "rgba(255,255,255,0.18)" }]}>
+                  <Ionicons name="wallet" size={26} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.gestionRetraitsTitle}>Effectuer un Retrait</Text>
+                  <Text style={styles.gestionRetraitsSub}>
+                    Retirer mes gains admin (jeux, commissions, pubs)
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={22} color="#fff" />
+              </TouchableOpacity>
+            </Card>
+
+            <Card>
               <SectionHeader icon="💸" title="Zone de Paiement — Retraits en attente" />
               {pendingW.length === 0 ? (
                 <View style={styles.miniEmpty}><Text style={styles.miniEmptyText}>✅ Aucune demande en attente</Text></View>

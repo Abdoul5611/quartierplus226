@@ -12,7 +12,7 @@
         "gradleCommand": ":app:assembleDebug"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "https://12847caf-4d28-463d-8405-0c7da09cdd7f-00-1wsfgibjmoy0i.worf.replit.dev"
       }
     },
     "preview": {
@@ -23,7 +23,7 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://54a8d679-6f96-4952-a104-4611d0878574-00-ygict804nhih.picard.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "https://12847caf-4d28-463d-8405-0c7da09cdd7f-00-1wsfgibjmoy0i.worf.replit.dev"
       }
     },
     "production": {

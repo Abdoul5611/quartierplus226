@@ -44,7 +44,7 @@ function getWsUrl(): string {
       return `wss://${clean}`;
     }
   }
-  return "wss://9f334176-05f6-43e0-ba6c-1984cf25a437-00-34wkyi99ocliw.janeway.replit.dev";
+  return "wss://12847caf-4d28-463d-8405-0c7da09cdd7f-00-1wsfgibjmoy0i.worf.replit.dev";
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

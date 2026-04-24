@@ -880,7 +880,7 @@ const REPLIT_BASE_URL = process.env.REPLIT_DEV_DOMAIN
   ? `https://${process.env.REPLIT_DEV_DOMAIN}`
   : process.env.EXPO_PUBLIC_DOMAIN
     ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-    : "https://af2d56f6-fd65-4578-aadc-fc30403c16f9-00-1dh6u2qesxr4w.janeway.replit.dev";
+    : "https://12847caf-4d28-463d-8405-0c7da09cdd7f-00-1wsfgibjmoy0i.worf.replit.dev";
 
 app.get("/api/config/payment", (_req, res) => {
   res.json({
